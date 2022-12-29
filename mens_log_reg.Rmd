@@ -1,0 +1,2134 @@
+---
+title: "Influence of menstruation on Dutch female blood donors part 3"
+author: "Sofie Ekroos"
+date: "5.5.2022"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Summary
+
+This is the third part of a series of code for the project "Influence of menstruation on Dutch female blood donors". This part allows the user to run Bayesian logistic regression on iron deficiency and anemia in the subgroup of menstruating females, in order to see how variables related to menstruation effect Dutch female blood donors. The code is based on Mikko Arvas's model "Low ferritin model" that can be found in the FRCBS github repo "iron_measurement_comparison" (https://github.com/FRCBS/iron_measurement_comparisons/blob/master/src/low_ferritin_model_bayes.Rmd). 
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(brms)
+library(bayesplot)
+library(cowplot)
+```
+
+# Data loading and preparation
+
+## Load data
+
+```{r}
+load("~/folder/data.rdata")
+
+regression_data <- regression_data %>% 
+     mutate(pbac_50 = pbac / 50) %>% 
+     mutate(hb_cutoff = Hb_g_l < 125) 
+```
+
+## Percentage of ID
+
+Check prevalence of iron deficiency and anemia in menstruating women 
+
+```{r}
+# make a new iron deficiency and anemia variables to make a pretty table
+percentages <- regression_data %>% filter(Menstruation == "Yes") %>% 
+  mutate(ID = case_when(
+    iron_deficiency == TRUE ~ "Yes",
+    iron_deficiency == FALSE ~ "No")) %>%
+  mutate(anemic = case_when(
+    anemia == TRUE ~ "Yes",
+    anemia == FALSE ~ "No")) %>%
+  mutate(ID = ordered(ID, levels =  c("Yes", "No"))) %>% 
+  mutate(anemic = ordered(anemic, levels =  c("Yes", "No"))) 
+
+percentages %>%
+  group_by(ID) %>%
+  summarise(n = n()) %>%
+  mutate(Percentage = formattable::percent(n / sum(n))) %>% 
+  arrange(desc(Percentage))
+
+percentages %>%
+  group_by(anemic) %>%
+  summarise(n = n()) %>%
+  mutate(Percentage = formattable::percent(n / sum(n))) %>% 
+  arrange(desc(Percentage))
+
+percentages %>%
+  group_by(hb_cutoff) %>%
+  summarise(n = n()) %>%
+  mutate(Percentage = formattable::percent(n / sum(n))) %>% 
+  arrange(desc(Percentage))
+
+```
+
+### Remove ordering
+
+Remove ordering for now, it messes up the forest plot
+
+```{r}
+regression_data <- regression_data %>% mutate_if(is.ordered, function(x){factor(x, ordered = FALSE)})
+```
+
+## Data transformations 
+
+Data transformations:
+
+* Age is divided by 5 to simplify coefficient interpretation
+* PBAC score is divided by 50 to simplify coefficient interpretation
+* Days since last donation is made into a quadratic term
+* Number of days since the last donation is transformed as $log\_last\_donation = log(last\_donation)/log(2)$ to help with the interpretation of coefficients. 
+    * An increase in one of the transformed variable is equivalent to a doubling of the number of days since last donation.
+* Blood volume is estimated based on Nadler's equation (female version) as $blood volume = (0.3561 × height^3) + (0.03308 × weight) + 0.1833$
+
+### Menstruating women 
+
+```{r}
+regression_data <- regression_data %>% 
+  filter(Menstruation == "Yes") %>% 
+  dplyr::select(KeyID, Weight, Smoking, Hb_g_l, Menstruation, Age, Group, Ferritin, BMI, DaysSinceLastDonation, DonationFreq2Years, DonationFreq2Years2, MenarcheAge, years_since_menarche, MenstruationLast6Months, LastMenstruation_Age, CycleRegularity, DaysBetweenCycles, BleedingDays, HormonalContraception_Use, hc_OC, hc_implant_injection, hc_transdermalpatch, hc_IUD, hc_vaginal_ring, hc_other, hc_years_OC, hc_years_implant_injection, hc_years_IUD, hc_years_vaginal_ring, hc_years_transdermal, hc_years_other, hc_age_quit, menopause_symptoms, hysterectomy, oophorectomy, nb_pregnancy, date_of_last_menstruation, Age_5, Weight_10, log_ferritin, log_DaysSinceLastDonation, iron_deficiency, anemia, hb_cutoff, pbac, pbac_intensity, HMB, current_hc, hc_type, current_cycleregularity, current_nbdaysbleeding, current_smoking, pbac_50, pbac_log_1, blood_volume) %>%
+  mutate(Age_5 = scale(Age_5, scale = FALSE)[,1],
+         blood_volume = scale(blood_volume, scale = FALSE)[,1],
+         pbac_50 = scale(pbac_50, scale = FALSE)[,1],
+         years_since_menarche = scale(years_since_menarche, scale = FALSE)[,1], 
+         DonationFreq2Years = scale(DonationFreq2Years, scale = FALSE)[,1],
+         log_DaysSinceLastDonation = scale(log_DaysSinceLastDonation, scale = FALSE)[,1],
+         DaysBetweenCycles = scale(DaysBetweenCycles, scale = FALSE)[,1],  
+         BleedingDays = scale(BleedingDays, scale = FALSE)[,1],
+         nb_pregnancy = scale(nb_pregnancy, scale = FALSE)[,1],
+         BMI = scale(BMI, scale = FALSE)[,1])
+
+```
+
+Relevel HMB so R compares the right level
+
+```{r}
+regression_data <- within(regression_data, HMB <- relevel(HMB, ref = "No"))
+```
+
+# Iron deficiency models
+
+## PBAC model
+
+First we run a model that is identical to version 1, in order to see the effect PBAC has and if results look similar to the results of version 1 that includes all premenopausal women irregardless of bleeding status.
+
+
+```{r}
+file <- "~/folder/logistic_mens_pbac"
+
+logistic_mens_pbac <- brm(iron_deficiency ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        pbac_50 +                        
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_mens_pbac)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_mens_pbac, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_mens_pbac, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_mens_pbac, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_mens_pbac, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+Rename variables (comment out the ones not needed, may need them in future versions)
+
+```{r}
+regressor_values <- c(
+    "Age_5" = "Age (5 years)",
+    "blood_volume" = "Blood volume",
+    "current_smokingyes" = "Smoker",
+    "pbac_50" = "PBAC score (per 50 points)",
+    "CycleRegularityInfrequentusuallythreetosevendaysearlyorlate" = "Cycle regularity: irregular",
+    "log_DaysSinceLastDonation" = "Days since last donation (log, /log(2))",
+    "DonationFreq2Years" = "Donations in the last 2 years",
+    "DonationFreq2Years2" = "Donations in the last 2 years (quadratic)",
+    "years_since_menarche" = "Years since menarche",
+    "nb_pregnancy" = "Number of pregnancies",
+    "current_hcNo" = "Does not use hormonal contraception",
+    "current_hcYes" = "Uses hormonal contraception",
+    "HMBNo" = "Normal menstruation",
+    "HMBYes" = "Heavy menstrual bleeding",
+    "HMBNomenstruation" = "Normal menstrual bleeding",
+    "hc_typeIUD" = "Hormonal contraception: IUD",
+    "hc_typeOC" = "Hormonal contraception: oral contraceptives",
+    "hc_typeOthertype" = "Hormonal contraception: other",
+    "hc_typeno" = "No hormonal contraception",
+    "DaysBetweenCycles" = "Days between two cycles",
+    "BleedingDays" = "Number of days bleeding"
+)
+```
+
+
+```{r}
+intervals_mens_pbac <- mcmc_intervals_data(
+  logistic_mens_pbac,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_mens_pbac <- intervals_mens_pbac %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig1, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_mens_pbac %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p1 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  ylab("Coefficient") 
+p1
+```
+
+
+```{r , fig2, fig.height = 5, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p1_pub <- p1 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p1_pub
+```
+
+
+## Heavy menstrual bleeding model
+
+This model is identical to the PBAC model, except for PBAC score which has been replaced by HMB.
+
+```{r}
+file <- "~/folder/logistic_mens_pbac_int"
+
+logistic_mens_pbac_int <- brm(iron_deficiency ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        HMB +  
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_mens_pbac_int)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_mens_pbac_int, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_mens_pbac_int, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_mens_pbac_int, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_mens_pbac_int, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+
+```{r}
+intervals_mens_pbac_int <- mcmc_intervals_data(
+  logistic_mens_pbac_int,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_mens_pbac_int <- intervals_mens_pbac_int %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig3, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_mens_pbac_int %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p2 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  ylab("Coefficient") 
+p2
+```
+
+
+```{r , fig4, fig.height = 5, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p2_pub <- p2 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p2_pub
+```
+
+
+## Other variable model 
+
+The following models includes variables related to menstruation, without the PBAC score variable. 
+
+```{r}
+file <- "~/folder/logistic_mens"
+
+logistic_mens <- brm(iron_deficiency ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        CycleRegularity +
+                        BleedingDays + #use this instead of current_nbdaysbleeding, this one has been scaled
+                        DaysBetweenCycles +
+                        years_since_menarche +
+                        HMB +
+                        hc_type +
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_mens)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_mens, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_mens, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_mens, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_mens, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+```{r}
+intervals_mens <- mcmc_intervals_data(
+  logistic_mens,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_mens <- intervals_mens %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig5, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_mens %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p3 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") 
+p3
+```
+
+
+```{r , fig6, fig.height = 6, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p3_pub <- p3 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p3_pub
+```
+
+## Other variable model with PBAC as control variable
+
+It seems like the effect of PBAC score is lost with IUD:s are taken into account in the other variables model. In order to check that the effect of PBAC score is not lost due to its information being lost in binning, we will run the model again and include PBAC score as a control (HMB has to be removed, as it is a transformation of the PBAC score).
+
+
+```{r}
+file <- "~/folder/logistic_mens_control"
+
+logistic_mens_control <- brm(iron_deficiency ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        CycleRegularity +
+                        BleedingDays + #use this instead of current_nbdaysbleeding, this one has been scaled
+                        DaysBetweenCycles +
+                        years_since_menarche +
+                        pbac_50 +
+                        hc_type +
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_mens_control)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_mens_control, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_mens_control, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_mens_control, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_mens_control, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+```{r}
+intervals_mens_control <- mcmc_intervals_data(
+  logistic_mens_control,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_mens_control <- intervals_mens_control %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig7, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_mens_control %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p4 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") +
+  theme(text = element_text(size = 20)) +
+  theme(axis.title.y = element_blank()) 
+p4
+```
+
+
+```{r , fig8, fig.height = 8, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p4_pub <- p4 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p4_pub
+```
+
+
+# Anemia models
+
+## PBAC model
+
+First we run a model that is identical to version 1, in order to see the effect PBAC has and if results look similar to the results of version 1 that includes all premenopausal women irregardless of bleeding status.
+
+
+```{r}
+file <- "~/folder/logistic_anemia_mens_pbac"
+
+logistic_anemia_mens_pbac <- brm(anemia ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        pbac_50 +                        
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_anemia_mens_pbac)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_anemia_mens_pbac, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_anemia_mens_pbac, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_anemia_mens_pbac, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_anemia_mens_pbac, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+Rename variables (comment out the ones not needed, may need them in future versions)
+
+```{r}
+regressor_values <- c(
+    "Age_5" = "Age (5 years)",
+    "blood_volume" = "Blood volume",
+    "current_smokingyes" = "Smoker",
+    "pbac_50" = "PBAC score (per 50 points)",
+    "CycleRegularityInfrequentusuallythreetosevendaysearlyorlate" = "Cycle regularity: irregular",
+    "log_DaysSinceLastDonation" = "Days since last donation (log, /log(2))",
+    "DonationFreq2Years" = "Donations in the last 2 years",
+    "DonationFreq2Years2" = "Donations in the last 2 years (quadratic)",
+    "years_since_menarche" = "Years since menarche",
+    "nb_pregnancy" = "Number of pregnancies",
+    "current_hcNo" = "Does not use hormonal contraception",
+    "current_hcYes" = "Uses hormonal contraception",
+    "HMBNo" = "Normal menstruation",
+    "HMBYes" = "Heavy menstrual bleeding",
+    "HMBNomenstruation" = "Normal menstrual bleeding",
+    "hc_typeIUD" = "Hormonal contraception: IUD",
+    "hc_typeOC" = "Hormonal contraception: oral contraceptives",
+    "hc_typeOthertype" = "Hormonal contraception: other",
+    "hc_typeno" = "No hormonal contraception",
+    "DaysBetweenCycles" = "Days between two cycles",
+    "BleedingDays" = "Number of days bleeding"
+)
+```
+
+
+```{r}
+intervals_anemia_mens_pbac <- mcmc_intervals_data(
+  logistic_anemia_mens_pbac,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_anemia_mens_pbac <- intervals_anemia_mens_pbac %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig9, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_anemia_mens_pbac %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p5 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") +
+  theme(text = element_text(size = 20)) +
+  theme(axis.title.y = element_blank()) 
+p5
+```
+
+
+```{r , fig10, fig.height = 5, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p5_pub <- p5 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p5_pub
+```
+
+
+## Heavy menstrual bleeding model
+
+This model is identical to the PBAC model, except for PBAC score which has been replaced by HMB
+
+```{r}
+file <- "~/folder/logistic_anemia_mens_pbac_int"
+
+logistic_anemia_mens_pbac_int <- brm(anemia ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        HMB +  
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_anemia_mens_pbac_int)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_anemia_mens_pbac_int, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_anemia_mens_pbac_int, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_anemia_mens_pbac_int, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_anemia_mens_pbac_int, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+
+```{r}
+intervals_anemia_mens_pbac_int <- mcmc_intervals_data(
+  logistic_anemia_mens_pbac_int,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_anemia_mens_pbac_int <- intervals_anemia_mens_pbac_int %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig11, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_anemia_mens_pbac_int %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p6 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  ylab("Coefficient") 
+p6
+```
+
+
+```{r , fig12, fig.height = 5, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p6_pub <- p6 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p6_pub
+```
+
+
+## Other variable model 
+
+The following models includes variables related to menstruation, without the PBAC score variable. 
+
+```{r}
+file <- "~/folder/logistic_anemia_mens"
+
+logistic_anemia_mens <- brm(anemia ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        CycleRegularity +
+                        BleedingDays + #use this instead of current_nbdaysbleeding, this one has been scaled
+                        DaysBetweenCycles +
+                        years_since_menarche +
+                        HMB +
+                        hc_type +
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_anemia_mens)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_anemia_mens, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_anemia_mens, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_anemia_mens, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_anemia_mens, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+```{r}
+intervals_anemia_mens <- mcmc_intervals_data(
+  logistic_anemia_mens,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_anemia_mens <- intervals_anemia_mens %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig13, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_anemia_mens %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p7 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") 
+  
+p7
+```
+
+
+```{r , fig14, fig.height = 6, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p7_pub <- p7 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p7_pub
+```
+
+
+## Other variable model with PBAC as control variable
+
+
+```{r}
+file <- "~/folder/logistic_anemia_mens_control"
+
+logistic_anemia_mens_control <- brm(anemia ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        CycleRegularity +
+                        BleedingDays + #use this instead of current_nbdaysbleeding, this one has been scaled
+                        DaysBetweenCycles +
+                        years_since_menarche +
+                        pbac_50 +
+                        hc_type +
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_anemia_mens_control)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_anemia_mens_control, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_anemia_mens_control, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_anemia_mens_control, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_anemia_mens_control, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+```{r}
+intervals_anemia_mens_control <- mcmc_intervals_data(
+  logistic_anemia_mens_control,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_anemia_mens_control <- intervals_anemia_mens_control %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig15, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_anemia_mens_control %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p8 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") +
+  theme(text = element_text(size = 20)) +
+  theme(axis.title.y = element_blank()) 
+p8
+```
+
+
+```{r , fig16, fig.height = 8, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p8_pub <- p8 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p8_pub
+```
+
+
+# Blood donation cutoff
+
+## PBAC model
+
+First we run a model that is identical to version 1, in order to see the effect PBAC has and if results look similar to the results of version 1 that includes all premenopausal women irregardless of bleeding status.
+
+
+```{r}
+file <- "~/folder/logistic_125_mens_pbac"
+
+logistic_125_mens_pbac <- brm(hb_cutoff ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        pbac_50 +                        
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_125_mens_pbac)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_125_mens_pbac, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_125_mens_pbac, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_125_mens_pbac, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_125_mens_pbac, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+Rename variables (comment out the ones not needed, may need them in future versions)
+
+```{r}
+regressor_values <- c(
+    "Age_5" = "Age (5 years)",
+    "blood_volume" = "Blood volume",
+    "current_smokingyes" = "Smoker",
+    "pbac_50" = "PBAC score (per 50 points)",
+    "CycleRegularityInfrequentusuallythreetosevendaysearlyorlate" = "Cycle regularity: irregular",
+    "log_DaysSinceLastDonation" = "Days since last donation (log, /log(2))",
+    "DonationFreq2Years" = "Donations in the last 2 years",
+    "DonationFreq2Years2" = "Donations in the last 2 years (quadratic)",
+    "years_since_menarche" = "Years since menarche",
+    "nb_pregnancy" = "Number of pregnancies",
+    "current_hcNo" = "Does not use hormonal contraception",
+    "current_hcYes" = "Uses hormonal contraception",
+    "HMBNo" = "Normal menstruation",
+    "HMBYes" = "Heavy menstrual bleeding",
+    "HMBNomenstruation" = "Normal menstrual bleeding",
+    "hc_typeIUD" = "Hormonal contraception: IUD",
+    "hc_typeOC" = "Hormonal contraception: oral contraceptives",
+    "hc_typeOthertype" = "Hormonal contraception: other",
+    "hc_typeno" = "No hormonal contraception",
+    "DaysBetweenCycles" = "Days between two cycles",
+    "BleedingDays" = "Number of days bleeding"
+)
+```
+
+
+```{r}
+intervals_125_mens_pbac <- mcmc_intervals_data(
+  logistic_125_mens_pbac,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_125_mens_pbac <- intervals_125_mens_pbac %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig17, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_125_mens_pbac %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p9 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  ylab("Coefficient") 
+p9
+```
+
+```{r , fig18, fig.height = 5, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p9_pub <- p1 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p9_pub
+```
+
+
+## Heavy menstrual bleeding model
+
+This model is identical to the PBAC model, except for PBAC score which has been replaced by HMB
+
+```{r}
+file <- "~/folder/logistic_125_mens_pbac_int"
+
+logistic_125_mens_pbac_int <- brm(hb_cutoff ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        HMB +  
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_125_mens_pbac_int)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_125_mens_pbac_int, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_125_mens_pbac_int, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_125_mens_pbac_int, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_125_mens_pbac_int, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+
+```{r}
+intervals_125_mens_pbac_int <- mcmc_intervals_data(
+  logistic_125_mens_pbac_int,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_125_mens_pbac_int <- intervals_125_mens_pbac_int %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig19, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_125_mens_pbac_int %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p10 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") +
+  theme(text = element_text(size = 20)) +
+  theme(axis.title.y = element_blank())
+p10
+```
+
+
+```{r , fig20, fig.height = 5, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p10_pub <- p10 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p10_pub
+```
+
+
+## Other variable model 
+
+The following models includes variables related to menstruation, without the PBAC score variable. 
+
+```{r}
+file <- "~/folder/logistic_125_mens"
+
+logistic_125_mens <- brm(hb_cutoff ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        CycleRegularity +
+                        BleedingDays + #use this instead of current_nbdaysbleeding, this one has been scaled
+                        DaysBetweenCycles +
+                        years_since_menarche +
+                        HMB +
+                        hc_type +
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_125_mens)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_125_mens, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_125_mens, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_125_mens, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_125_mens, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+```{r}
+intervals_125_mens <- mcmc_intervals_data(
+  logistic_125_mens,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_125_mens <- intervals_125_mens %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig21, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_125_mens %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p11 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") +
+  theme(text = element_text(size = 20)) +
+  theme(axis.title.y = element_blank())
+p11
+```
+
+```{r , fig22, fig.height = 6, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p11_pub <- p11 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p11_pub
+```
+
+
+## Other variable model with PBAC as control variable
+
+Same model as above with PBAC score as a control (HMB has to be removed, as it is a transformation of the PBAC score).
+
+
+```{r}
+file <- "~/folder/logistic_125_mens_control"
+
+logistic_125_mens_control <- brm(hb_cutoff ~
+                        Age_5 +
+                        blood_volume +
+                        current_smoking +
+                        DonationFreq2Years +
+                        DonationFreq2Years2 +
+                        log_DaysSinceLastDonation +
+                        CycleRegularity +
+                        BleedingDays + #use this instead of current_nbdaysbleeding, this one has been scaled
+                        DaysBetweenCycles +
+                        years_since_menarche +
+                        pbac_50 +
+                        hc_type +
+                        nb_pregnancy,
+                      data = regression_data,
+                      family = bernoulli(),
+                      file=file,
+                      cores = 4,
+                      iter= 10000
+)
+summary(logistic_125_mens_control)
+
+```
+
+
+### Diagnostics 
+
+#### Trace 
+
+```{r}
+mcmc_plot(logistic_125_mens_control, type = "trace")
+```
+chains look good
+
+#### ACF bars 
+
+```{r}
+mcmc_plot(logistic_125_mens_control, type = "acf_bar")
+```
+
+
+Autocorrelation drops nicely 
+
+
+#### Rhat
+
+```{r}
+mcmc_plot(logistic_125_mens_control, type = "rhat")
+```
+
+Rhat stays under 1 so it seems that chains have mixed well. 
+
+### Forest plots 
+
+```{r}
+p <- mcmc_plot(logistic_125_mens_control, 
+         type = "areas",
+         prob = 0.95,
+         #prob_est="median",
+         transformations = "exp"
+        ) +
+  geom_vline(xintercept = 1, color = "grey")
+
+p <- p + scale_x_log10()
+p
+```
+
+```{r}
+intervals_125_mens_control <- mcmc_intervals_data(
+  logistic_125_mens_control,
+  prob=0.9,
+  prob_outer = 0.95,
+  point_est = "median",
+  transformations = "exp"
+  ) %>%  
+  arrange(m) # how to order the variables?
+
+intervals_125_mens_control <- intervals_125_mens_control %>% 
+  filter(! (parameter == 'exp(b_Intercept)' | parameter == 'exp(lp__)' | parameter == 'exp(lprior)')) %>% 
+  mutate(parameter = gsub("\\)","",gsub("exp\\(b_","",parameter))) %>% 
+  mutate(regressor = plyr::revalue(parameter, regressor_values)) 
+  #arrange(m)
+
+```
+
+```{r , fig23, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+orlower <- 1/30
+orupper <- 30
+
+# Truncate ORs for plotting
+plotdata <- intervals_125_mens_control %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 1 & hh < 1 | ll > 1 & hh > 1)
+
+#theme_set(bayesplot::theme_default())
+p12 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(
+    aes(shape = is.sig),
+    size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  scale_x_log10(limits=c(orlower,orupper))  + #how to get the lines that drop out of the visible?  
+  geom_vline(xintercept = 1 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  ylab("Coefficient") 
+p12
+```
+
+
+
+```{r , fig24, fig.height = 8, fig.width = 13 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p12_pub <- p12 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5))
+
+p12_pub
+```
+
+
+
+# Model comparison
+
+## Leave-One-Out Cross-Validation for Bayesian Models
+
+### Ferritin models
+
+```{r}
+loo_R2(logistic_mens_pbac) # model 1 = identical to version 1 
+loo_R2(logistic_mens_pbac_int) # model 2 = identical to model 1, except for pbac_50 which has been replaced by HMB
+loo_R2(logistic_mens) # model 3 = variables related to menstruation but not pbac_50
+loo_R2(logistic_mens_control) # model 4 = model 3 but HMB has been replaced by pbac_50
+
+```
+
+## Model comparison
+
+The "best" model is the one the one that is printed as the first row in the results table. 2*se_diff - elpd_diff is not supposed to be > 0.
+
+```{r}
+model1 <- loo(logistic_mens_pbac)     
+model2 <- loo(logistic_mens_pbac_int) 
+model3 <- loo(logistic_mens) 
+model4 <- loo(logistic_mens_control)
+
+loo_compare(model1, model3)
+```
+
+
+## Figure 4 
+
+```{r, fig32, fig.height = 5, fig.width = 5 ,warning=FALSE}
+# iron deficiency
+id_pub <- p3_pub +
+      theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank())
+id_pub
+
+# anemia 
+anemia_pub <- p7_pub +
+      theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank())
+anemia_pub
+```
+
+
+```{r , fig33, fig.height = 5, fig.width = 10 ,warning=FALSE}
+fig4 <- plot_grid(id_pub, anemia_pub, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+fig4
+
+
+```
+
+# S5 (appendix)
+
+```{r, fig35, fig.height = 5, fig.width = 20 ,warning=FALSE}
+S5 <- plot_grid(p4_pub, p8_pub, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1) 
+S5
+```
+
+# S7 (appendix)
+
+```{r}
+p11_pub
+```

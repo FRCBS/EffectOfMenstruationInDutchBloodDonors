@@ -1,0 +1,1277 @@
+---
+title: "Influence of menstruation on Dutch female blood donors part 1"
+author: "Sofie Ekroos"
+date: "3.5.2022"
+output: "html_document"
+---
+
+Code based on low_ferritin_data (https://github.com/FRCBS/iron_measurement_comparisons/blob/master/src/low_ferritin_data.Rmd)
+
+# Summary
+
+This is the first part of a series of code for the project "Influence of menstruation on Dutch female blood donors". Part 1 allows the user to run the analysis of and produce the figures for the DIS-III cohort's female participants. The code allows the user to describe the cohorts and build a summary table that can be used in further regression analysis. In part 2 linear regression on ferritin and hemoglobin is performed and in part 3 logistic regression on iron deficiency and anemia is performed.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse) 
+library(tableone)
+library(GGally)
+library(ggExtra) # marginal histograms 
+library(knitr)
+library(rmarkdown)
+library(dplyr)
+library(ggplot2)
+library(cowplot) # plot_grid
+library(gridExtra) # grid.arrange"
+library(boot) # bootstrap
+library(rsample) #bootstrap
+library(formattable) #needed for table with percentages
+library(foreign) #needed for uploading SPSS data
+library(gapminder) #used for testing, not necessary for project 
+library(funModeling) #used for testing, not necessary for project 
+library(Hmisc) #used for testing, not necessary for project
+library(e1071) # density plots
+library(kableExtra) 
+
+# echo "rmarkdown::render('menstruation_data.Rmd', clean=TRUE,output_format='pdf_document',output_file='../menstruation_data.pdf')" | R --slave
+```
+
+# Data loading and preparation
+
+## Data loading 
+
+```{r, warning=FALSE}
+# load DIS-III data 
+
+## load data from research database
+original_data <- read.spss(file="~/menstruation_project/data/Workingfile Menstruation Project With PBAC.sav", use.value.labels = TRUE, to.data.frame = T,
+                               max.value.labels = Inf, trim.factor.names = FALSE,
+                               trim_values = TRUE, reencode = NA,
+                               sub = ".", add.undeclared.levels = c("sort", "append", "no"))
+
+
+#Q46.1 is a date and will not be transferred to R in the correct format, transform back to original date format in a new variable (Q46.1_date)
+original_data$Q46.1_date <- as.Date(original_data$Q46.1/86400, origin = "1582-10-14")
+```
+
+## Data preparation
+
+There are `r original_data %>% distinct(KeyID) %>% nrow()` female blood donors in the cohort. `r original_data %>% filter(is.na(Ferritin) & is.na(Hemoglobin)) %>% distinct(KeyID) %>% nrow()` of them have no ferritin or Hb measurements, in other words no ferritin or Hb data is missing. 
+
+```{r}
+
+female_donors <- original_data
+
+#rename variables
+names(female_donors)[names(female_donors) == "Hb"] <- "Hb_mmol_l"
+names(female_donors)[names(female_donors) == "Hemoglobin"] <- "Hb_g_l"
+names(female_donors)[names(female_donors) == "DagenLaatsteDonatie"] <- "DaysSinceLastDonation"
+names(female_donors)[names(female_donors) == "FreqDonatie2Jaar"] <- "DonationFreq2Years"
+names(female_donors)[names(female_donors) == "Q43"] <- "MenarcheAge"
+names(female_donors)[names(female_donors) == "Q44"] <- "MenstruationLast6Months"
+names(female_donors)[names(female_donors) == "Q45"] <- "LastMenstruation_Age"
+names(female_donors)[names(female_donors) == "Q47"] <- "LastMenstruation_DaysWeeks" 
+names(female_donors)[names(female_donors) == "Q48"] <- "CycleRegularity"
+names(female_donors)[names(female_donors) == "Q49"] <- "DaysBetweenCycles"
+names(female_donors)[names(female_donors) == "Q50"] <- "BleedingDays"
+names(female_donors)[names(female_donors) == "Q51"] <- "HormonalContraception_Use"
+names(female_donors)[names(female_donors) == "Q52.1"] <- "hc_OC"
+names(female_donors)[names(female_donors) == "Q52.2"] <- "hc_implant_injection"
+names(female_donors)[names(female_donors) == "Q52.3"] <- "hc_transdermalpatch"
+names(female_donors)[names(female_donors) == "Q52.4"] <- "hc_IUD"
+names(female_donors)[names(female_donors) == "Q52.5"] <- "hc_vaginal_ring"
+names(female_donors)[names(female_donors) == "Q52.6"] <- "hc_other"
+names(female_donors)[names(female_donors) == "Q53"] <- "hc_years_OC"
+names(female_donors)[names(female_donors) == "Q54"] <- "hc_years_implant_injection"
+names(female_donors)[names(female_donors) == "Q55"] <- "hc_years_transdermal"
+names(female_donors)[names(female_donors) == "Q56"] <- "hc_years_IUD"
+names(female_donors)[names(female_donors) == "Q57"] <- "hc_years_vaginal_ring"
+names(female_donors)[names(female_donors) == "Q58"] <- "hc_years_other"
+names(female_donors)[names(female_donors) == "Q59"] <- "hc_age_quit"
+names(female_donors)[names(female_donors) == "Q60"] <- "menopause_symptoms"
+names(female_donors)[names(female_donors) == "Q73"] <- "hysterectomy"
+names(female_donors)[names(female_donors) == "Q75"] <- "oophorectomy"
+names(female_donors)[names(female_donors) == "Q76"] <- "oophorectomy_type"
+names(female_donors)[names(female_donors) == "Q79"] <- "pregnancy"
+names(female_donors)[names(female_donors) == "Q80"] <- "nb_pregnancy"
+names(female_donors)[names(female_donors) == "MSK_Score"] <- "pbac"
+names(female_donors)[names(female_donors) == "Q46.1_date"] <- "date_of_last_menstruation"
+```
+
+Next include only the variables we are using
+
+```{r}
+# select the variables
+female_donors <- female_donors %>% 
+  dplyr::select(KeyID, Weight, Length, Smoking, Hb_g_l, Menstruation, Age, Ferritin, BMI, DaysSinceLastDonation, DonationFreq2Years, MenarcheAge, MenstruationLast6Months, CycleRegularity, DaysBetweenCycles, BleedingDays, HormonalContraception_Use, hc_OC, hc_implant_injection, hc_transdermalpatch, hc_IUD, hc_vaginal_ring, hc_other, hc_years_OC, hc_years_implant_injection, hc_years_IUD, hc_years_vaginal_ring, hc_years_transdermal, hc_years_other, hc_age_quit, hysterectomy, oophorectomy, oophorectomy_type, pregnancy, nb_pregnancy, pbac)
+```
+
+## Data overview 
+
+```{r}
+#gapminder can be used to pivot wider and/or longer if needed, not done currently
+
+
+initial_analysis <- function(female_donors)
+{
+  glimpse(female_donors) #overview of type of variables (rows, column, head)
+  print(status(female_donors)) #returns overview in table format
+  freq(female_donors) #analysis for categorical variables (factor, character) 
+  print(profiling_num(female_donors)) #analysis of numerical variables
+  plot_num(female_donors) #analysis of numerical variables
+  describe(female_donors) #analysis of numerical and categorical variables at the same time
+}
+
+initial_analysis(female_donors)
+
+```
+
+## Demographic group specification
+
+### Build a new menopausal status variable
+
+Women who report menstruating or currently not menstruating due to current/earlier pregnancy are imputed as premenopausal. Women who report not menstruating due to menopause are imputed as postmenopausal. This leaves us with `r nrow(filter(female_donors,Menstruation == "No, due to a different reason"))` women who report not menstruating for some other reason than menopause or pregnancy and `r female_donors %>% filter(is.na(Menstruation)) %>% distinct(KeyID) %>% nrow()` who did not answer the menstruation question. 
+
+We can assume that at least some of the women not menstruating are due to use of contraception, other reasons could be hysterectomy or oophorectomy. Let's check to see how many non-menstruating women have answered these questions.
+
+```{r}
+table(female_donors$hysterectomy, female_donors$Menstruation) 
+table(female_donors$oophorectomy, female_donors$Menstruation)
+table(female_donors$HormonalContraception_Use, female_donors$Menstruation) 
+
+
+# visualize the tables above 
+ggplot(female_donors, aes(x = Menstruation, fill = hysterectomy)) +
+  geom_bar() 
+
+ggplot(female_donors, aes(x = Menstruation, fill = oophorectomy)) +
+  geom_bar()
+
+ggplot(female_donors, aes(x = Menstruation, fill = HormonalContraception_Use)) +
+  geom_bar()
+
+# how many of the women who have had surgery use contraception?
+
+ggplot(female_donors, aes(x = HormonalContraception_Use, fill = hysterectomy)) +
+  geom_bar()
+
+ggplot(female_donors, aes(x = HormonalContraception_Use, fill = oophorectomy)) +
+  geom_bar()
+
+```
+The contraception use variable is asking if the women is currently using or has ever used hormonal contraception. For this reason some women who have had a hysterectomy or oophorectomy also report hormonal contraception use. As a women who has had a hysterectomy or a bilateral oophorectomy does not menstruate, we can move them to the post-menopausal group. 
+
+
+```{r}
+female_donors <- female_donors %>%
+  mutate(Group = case_when(
+    Menstruation == "No, due to menopaus" ~ "Postmenopausal", # women who report menopause to postmenopausal group
+    Menstruation == "Yes" ~ "Premenopausal", # women who report menstruation to premenopausal group
+    Menstruation == "No, I am or have been pregnant" ~ "Premenopausal", # current/earlier pregnancy to premenopausal group
+    hysterectomy == "Yes" ~ "Postmenopausal", # women who have had hysterectomy to postmenopausal group
+    oophorectomy_type == "Both ovaries have been completely removed" ~ "Postmenopausal", # women who have had bilateral oophorectomy to postmenopausal group
+    Menstruation == "No, due to a different reason" & (Age >= 45) ~ "Postmenopausal", # women >= 45 with no menstruation due to other reason to postmenopausal group
+    Menstruation == "No, due to a different reason" & (Age < 45) ~ "Premenopausal" # women < 45 with no menstruation due to other reason to premenopausal group
+    ))
+
+```
+
+There are `r female_donors %>% filter(is.na(Menstruation)) %>% distinct(KeyID) %>% nrow()` missing answers for the menstruation question. `r female_donors %>% filter(is.na(Menstruation) & Age >=55) %>% distinct(KeyID) %>% nrow()` of these women are >=55 years old and for that reason unlikely to still be premenopausal and for that reason imputed as postmenopausal. Women <55 years old with n/a answers to the menstruation question are removed. 
+
+```{r}
+# women >=55 years old with n/a for menstruation are imputed as postmenopausal
+
+women_older_than_55 <- filter(female_donors,
+                              Age >= 55 & is.na(Menstruation))$KeyID
+# fix menstruation variable
+female_donors <- female_donors %>%
+  mutate(Menstruation = ifelse(KeyID %in% women_older_than_55, "No, due to menopaus", as.character(Menstruation)))
+
+#fix menopause variable
+female_donors <- female_donors %>%
+  mutate(Group = ifelse(KeyID %in% women_older_than_55, "Postmenopausal", as.character(Group)))
+
+# remove NA:s for menstruation
+  
+nb_removed <- female_donors %>% filter(is.na(Menstruation)) %>% nrow()
+female_donors <- female_donors %>% filter(!is.na(Menstruation))
+
+```
+
+PBAC scores for women who do not menstruate due to menopause are imputed as 0.
+
+```{r}
+postmenopausal_pbac <- filter(female_donors,
+                              Group == "Postmenopausal")$KeyID
+
+female_donors <- female_donors %>%
+  mutate(pbac = as.numeric(ifelse(KeyID %in% postmenopausal_pbac, "0", pbac))) 
+```
+
+PBAC scores for pre-menopausal women who have reported not having menstruation due to pregnancy or other reason are imputed as 0 as not to drop these women when we remove n/a:s (as they are not menstruating and for that reason don't have PBAC scores).
+
+```{r}
+# not menstruating due to another reason than menopause or pregnancy
+premenopausal_different_pbac <- filter(female_donors,
+                              Group == "Premenopausal" & Menstruation == "No, due to a different reason")$KeyID
+
+female_donors <- female_donors %>%
+  mutate(pbac = as.numeric(ifelse(KeyID %in% premenopausal_different_pbac, "0", pbac))) 
+
+
+# not menstruating due to current or earlier pregnancy
+premenopausal_pregnancy_pbac <- filter(female_donors,
+                              Group == "Premenopausal" & Menstruation == "No, I am or have been pregnant")$KeyID
+
+female_donors <- female_donors %>%
+  mutate(pbac = as.numeric(ifelse(KeyID %in% premenopausal_pregnancy_pbac, "0", pbac))) 
+```
+
+Number of bleeding days in  women are not currently menstruating (menopause, pregnancy or other reason) are imputed as 0. In order to do this and not lose the data of number of days they were bleeding back when they were still menstruating, we will make a new variable, current_nbdaysbleeding.
+
+```{r}
+
+female_donors <- female_donors %>% 
+  mutate(current_nbdaysbleeding = BleedingDays)
+
+# pregnancy
+nbdaysbleeding_pre_preg <- filter(female_donors,
+                              Menstruation == "No, I am or have been pregnant")$KeyID
+female_donors <- female_donors %>%
+  mutate(current_nbdaysbleeding = as.numeric(ifelse(KeyID %in% nbdaysbleeding_pre_preg, "0", current_nbdaysbleeding))) 
+
+
+# other
+nbdaysbleeding_pre_other <- filter(female_donors,
+                              Menstruation == "No, due to a different reason")$KeyID
+female_donors <- female_donors %>%
+  mutate(current_nbdaysbleeding = as.numeric(ifelse(KeyID %in% nbdaysbleeding_pre_other, "0", current_nbdaysbleeding))) 
+
+# menopause 
+nbdaysbleeding_post <- filter(female_donors,
+                              Group == "Postmenopausal")$KeyID
+
+female_donors <- female_donors %>%
+  mutate(current_nbdaysbleeding = as.numeric(ifelse(KeyID %in% nbdaysbleeding_post, "0", current_nbdaysbleeding))) 
+```
+
+Next we make a new variable for heavy menstrual bleeding (HMB = PBAC score >= 150)
+
+```{r}
+female_donors <- female_donors %>% 
+  mutate(HMB = case_when(
+    pbac >= 150 ~ "Yes",
+    pbac >= 1 & pbac <150 ~ "No",
+    pbac == 0 ~ "No menstruation"))
+```
+
+
+```{r}
+# Distribution of PBAC scores (change the number of breaks to see a more or less detailed view)
+
+## premenopausal women
+female_donors_overview_pre <- female_donors %>% 
+  filter(Group == "Premenopausal")
+hist(female_donors_overview_pre$pbac, breaks=100, main="Distribution of PBAC scores in premenopausal women", xlab="PBAC score", ylab="count")
+
+## menstruating women 
+female_donors_overview_mens <- female_donors %>% 
+  filter(Menstruation == "Yes")
+hist(female_donors_overview_mens$pbac, breaks=100, main="Distribution of PBAC scores in menstruating women", xlab="PBAC score", ylab="count")
+```
+
+## New variables
+
+We need to build a few new variables concerning current behavior and characteristics.
+
+### Smoking
+
+```{r}
+female_donors <- female_donors %>% 
+  mutate(current_smoking = case_when(
+    Smoking == "Yes" ~ "yes",
+    Smoking == "No, never" ~ "no",
+    Smoking == "No, but smoked in the past" ~ "no"
+    ))
+```
+
+### Age group
+
+```{r}
+# make a new variable with age groups
+
+female_donors <- female_donors  %>%
+  mutate(age_group = case_when(Age < 25 ~ "18-24",
+                               Age < 30 ~ "25-29",
+                               Age < 35 ~ "30-34",
+                               Age < 40 ~ "35-39",
+                               Age < 45 ~ "40-44",
+                               Age < 50 ~ "45-49",
+                               Age < 55 ~ "50-54",
+                               Age < 60 ~ "55-59",
+                               Age < 65 ~ "60-64",
+                               Age < 71 ~ "65-70"))
+
+```
+
+### Number of pregnancies
+
+We already have a variable for the number of pregnancies, but we need to include "0" pregnancies as women who have not been pregnant have been coded as N/A. We know who has never been pregnant from the earlier question "pregnancy" (yes/no). 
+
+Pregnancies includes live births, miscarriages, abortions, stillbirths (the question did not specify which type).
+
+```{r}
+female_donors <- female_donors %>% 
+  mutate(nb_pregnancy = case_when(
+    nb_pregnancy == "1" ~ "1",
+    nb_pregnancy == "2" ~ "2",
+    nb_pregnancy == "3" ~ "3",
+    nb_pregnancy == "4" ~ "4",
+    nb_pregnancy == "5" ~ "5",
+    nb_pregnancy == "6" ~ "6",
+    nb_pregnancy == "7" ~ "7",
+    nb_pregnancy == "8" ~ "8",
+    nb_pregnancy == "9" ~ "9",
+    nb_pregnancy == "10" ~ "10",
+    nb_pregnancy == "36" ~ "36",
+    pregnancy == "No" ~ "0")) %>% 
+  mutate(nb_pregnancy = as.numeric(nb_pregnancy))
+```
+
+## Remove cohort participants with missing data
+
+### Donation history 
+
+We remove `r female_donors %>% filter(is.na(DaysSinceLastDonation)) %>% nrow()` blood donors who have not donated previously (they are missing the number of days since last donation variable). `r female_donors %>% filter(is.na(DonationFreq2Years)) %>% nrow()` donors are also missing data on their last donation, they are removed as well.
+
+```{r}
+# DaysSinceLastDonation
+nb_removed <- nb_removed + female_donors %>% filter(is.na(DaysSinceLastDonation)) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(DaysSinceLastDonation))
+
+
+# Donation5YearPriorDIS
+nb_removed <- nb_removed + female_donors %>% filter(is.na(DonationFreq2Years)) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(DonationFreq2Years))
+```
+
+### BMI and height
+
+We remove `r female_donors %>% filter(is.na(BMI)) %>% nrow()` participants for whom we do not have the BMI/height data
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(BMI)) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(BMI))
+```
+
+### Weight
+
+We remove `r female_donors %>% filter(is.na(Weight)) %>% nrow()` participants for whom we do not have the weight data
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(Weight)) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(Weight))
+```
+
+### Current smoking
+
+We remove `r female_donors %>% filter(is.na(current_smoking)) %>% nrow()` participants for whom we do not have the smoking data
+
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(current_smoking)) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(current_smoking))
+```
+
+### Age
+
+We remove `r female_donors %>% filter(is.na(Age)) %>% nrow()` participants for whom we do not have the age data
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(Age)) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(Age))
+```
+
+### Number of pregnancies
+
+We remove `r female_donors %>% filter(is.na(nb_pregnancy)) %>% nrow()` participants for whom we do not have the age data
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(nb_pregnancy)) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(nb_pregnancy))
+
+```
+
+## Remove participants with missing menstruation variables
+
+In order to keep as many participants as possible, we will only remove n/a:s for women who are still menstruating as we will not be able to use the menstruation variables in non-menstruating women anyway.
+
+### Cycle regularity 
+
+First, let's build a variable for cycle regularity in women who are currently menstruating (as women were asked to answer the question regardless of current menstrual status).
+
+```{r}
+female_donors <- female_donors %>% 
+  mutate(current_cycleregularity = case_when(
+    Menstruation == "No, due to a different reason" ~ "not menstruating",
+    Menstruation == "No, I am or have been pregnant" ~ "not menstruating",
+    Group == "Postmenopausal" ~ "not menstruating",
+    Menstruation == "Yes" & (CycleRegularity == "unpredictable") ~ "unpredictable",
+    Menstruation == "Yes" & (CycleRegularity == "Infrequent, usually three to seven days early or late") ~ "Infrequent, usually three to seven days early or late",
+    Menstruation == "Yes" & (CycleRegularity == "Regularly, usually no more than two days early or late") ~ "Regularly, usually no more than two days early or late"))
+
+```
+
+We are missing cycle regularity data from `r female_donors %>% filter(is.na(current_cycleregularity)) %>% nrow()` women. Of them, `r female_donors %>% filter(is.na(current_cycleregularity) & Group == "Premenopausal") %>% nrow()` are pre-menopausal and will be removed. 
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(current_cycleregularity) & Group == "Premenopausal") %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(current_cycleregularity) |  Group == "Postmenopausal")
+```
+
+### PBAC scores 
+
+We are missing PBAC scores from `r female_donors %>% filter(is.na(pbac)) %>% nrow()` women. Of them, `r female_donors %>% filter(is.na(pbac) & Group == "Premenopausal") %>% nrow()` are pre-menopausal and will be removed. 
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(pbac) & Group == "Premenopausal") %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(!is.na(pbac) |  Group == "Postmenopausal")
+```
+
+
+### Number of bleeding days  
+
+We are missing data on number of bleeding days during the menstrual period from `r female_donors %>% filter(is.na(BleedingDays)) %>% nrow()` women. Of them, `r female_donors %>% filter(is.na(BleedingDays) & Group == "Premenopausal") %>% nrow()` are pre-menopausal.  
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(BleedingDays) & Group == "Premenopausal") %>% nrow()
+
+female_donors <- female_donors %>%
+  filter(!is.na(BleedingDays) | Group == "Postmenopausal")
+```
+
+### Days between cycles
+
+We are missing `r female_donors %>% filter(is.na(DaysBetweenCycles)) %>% nrow()` observations on the days between two cycles. `r female_donors %>% filter(is.na(DaysBetweenCycles) & Group == "Premenopausal") %>% nrow()` are premenopausal
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(DaysBetweenCycles) & Group == "Premenopausal") %>% nrow()
+
+female_donors <- female_donors %>%
+  filter(!is.na(DaysBetweenCycles) | Group == "Postmenopausal")
+```
+
+### Age of menarche
+
+We are missing `r female_donors %>% filter(is.na(MenarcheAge)) %>% nrow()` observations on the age of the woman's first menstruation. `r female_donors %>% filter(is.na(MenarcheAge) & Group == "Premenopausal") %>% nrow()` of the missing observations come from women who are premenopausal. 
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(is.na(MenarcheAge) & Group == "Premenopausal") %>% nrow()
+
+female_donors <- female_donors %>%
+  filter(!is.na(MenarcheAge) | Group == "Postmenopausal")
+```
+
+
+## Exclusion criteria
+
+Remove participants with extreme physiological measures, those outside of the allowed age range for blood donors and women who are or have recently been pregnant
+
+We remove data according to the following criteria:
+* BMI > 50
+* Ferritin > 200 (we don't have any CRP data for this cohort)
+* PBAC score > 400
+* Age <18 and >=70 years old
+* < 10 pregnancies
+* Current or recent pregnancy
+
+This amounts to `r female_donors %>% filter(BMI >= 50 | Ferritin >= 200 | pbac >= 400 | Age < 18 | Age >= 70 | nb_pregnancy >= 10) %>% nrow()` participants that are removed.
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(BMI >= 50 | Ferritin >= 200 | pbac >= 400 | Age < 18 | Age >= 70 | nb_pregnancy >=10) %>% nrow()
+
+female_donors <- female_donors %>% 
+  filter(BMI < 50 & Ferritin < 200 & pbac < 400 & Age >= 18 & Age < 70 & nb_pregnancy < 10)
+```
+
+`r nrow(filter(female_donors,Menstruation == "No, I am or have been pregnant"))` women report being pregnant or recently having been pregnant. 
+
+```{r}
+nb_removed <- nb_removed + female_donors %>% filter(Menstruation == "No, I am or have been pregnant") %>% nrow()
+female_donors <- female_donors %>% filter(!(Menstruation == "No, I am or have been pregnant"))
+```
+
+## Use of contraception
+
+Next we build a new variable for current use of contraception and one for type of contraception used. As very few women use other contraception that oral contraceptions or IUD:s, all other types will be imputed as "other".
+
+```{r}
+
+# current use of hormonal contraception = current_hc
+female_donors <- female_donors %>% 
+  mutate(current_hc = case_when(
+    HormonalContraception_Use == "Nee" ~ "No", 
+    hc_OC == "Yes, currently" ~ "Yes",
+    hc_IUD == "Yes, currently" ~ "Yes",
+    hc_vaginal_ring == "Yes, currently" ~ "Yes",
+    hc_implant_injection == "Yes, currently" ~ "Yes",
+    hc_transdermalpatch == "Yes, currently" ~ "Yes",
+    hc_other == "Yes, currently" ~ "Yes",
+    TRUE ~ "No"))
+
+# type of hormonal contraception used currently = hc_type
+
+female_donors <- female_donors %>% 
+  mutate(hc_type = case_when(
+    HormonalContraception_Use == "Nee" ~ "No",
+    hc_OC == "Yes, currently" ~ "OC",
+    hc_IUD == "Yes, currently" ~ "IUD",
+    hc_vaginal_ring == "Yes, currently" ~ "Other type",
+    hc_implant_injection == "Yes, currently" ~ "Other type",
+    hc_transdermalpatch == "Yes, currently" ~ "Other type",
+    hc_other == "Yes, currently" ~ "Other type",    
+    TRUE ~ "No"))
+
+```
+
+## Number of years menstruating
+
+Next we build a variable for the number of years a women has been menstruating by subtracting the age of menarche from the current age of the woman.
+
+```{r}
+female_donors <- female_donors %>%
+  mutate(MenarcheAge = as.numeric(as.character(MenarcheAge))) %>%  # age of menarche was transformed to a factor variable when imported from SPSS
+  mutate(years_since_menarche = all_of(Age) - all_of(MenarcheAge))
+```
+
+## Blood volume
+
+Blood volume is estimated based on Nadler's equation (female version, weight in kg and height in m):
+
+Blood Volume = (0.3561 × height^3) + (0.03308 × weight) + 0.1833
+
+```{r}
+female_donors$blood_volume <- (0.3561*female_donors$Length^3) + (0.03308*female_donors$Weight) + 0.1833
+```
+
+## Order variables 
+
+```{r}
+female_donors <- female_donors %>% 
+  mutate(Menstruation = ordered(Menstruation, levels =  c("Yes", "No, I am or have been pregnant", "No, due to a different reason", "No, due to menopaus"))) %>% 
+  mutate(current_cycleregularity = ordered(current_cycleregularity, levels =  c("Regularly, usually no more than two days early or late", "Infrequent, usually three to seven days early or late", "unpredictable", "not menstruating"))) %>% 
+  mutate(Group = ordered(Group, levels =  c("Premenopausal", "Postmenopausal"))) %>% 
+  mutate(HMB = ordered(HMB, levels =  c("Yes", "No", "No menstruation"))) %>% 
+  mutate(current_hc = ordered(current_hc, levels =  c("No", "Yes"))) %>% 
+  mutate(current_smoking = ordered(current_smoking, levels =  c("no", "yes"))) %>% 
+  mutate(hc_type = ordered(hc_type, levels =  c("No", "Other type", "OC", "IUD")))
+```
+
+## Final group N 
+
+In total, `r nb_removed` women were excluded. 
+
+```{r}
+
+female_donors_final <- female_donors
+
+female_donors_final %>% 
+  group_by(Group) %>% 
+  summarise ( N = n()) %>% 
+  kable() 
+
+```
+
+# Results 
+
+## Regression table
+
+### Transform variables
+
+```{r}
+regression_data <- female_donors_final %>% 
+     mutate(DaysBetweenCycles = as.numeric(as.character(DaysBetweenCycles))) %>% 
+     mutate(BleedingDays = as.numeric(as.character(BleedingDays))) %>% 
+     mutate(Age_5 = Age / 5, 
+            Weight_10 = Weight / 10,
+            pbac_50 = pbac / 50,
+            pbac_log_1 = log(pbac + 1),
+            DonationFreq2Years2 = DonationFreq2Years^2,  
+            log_ferritin = log(Ferritin),
+            log_pbac = log(pbac),
+            log_DaysSinceLastDonation = log(DaysSinceLastDonation)/log(2),
+            iron_deficiency = Ferritin < 15,
+            anemia = Hb_g_l < 120) 
+```
+
+
+
+Save table
+
+```{r}
+write.table(regression_data, file = paste0("~/folder/data",".txt"))
+
+save(regression_data, file = paste0("~/folder/data.rdata"))
+```
+
+Data transformations:
+
+* Log transformed variables: 
+    * Ferritin
+
+* Age is divided by 5 to simplify coefficient interpretation
+* PBAC score is divided by 50 to simplify coefficient interpretation
+* Days since last donation was added a quadratic term
+* Number of days since the last donation is transformed as $log\_last\_donation = log(last\_donation)/log(2)$ to help with the interpretation of coefficients. 
+    * An increase in one of the transformed variable is equivalent to a doubling of the number of days since last donation.
+* Blood volume is estimated based on Nadler's equation (female version) as $blood volume = (0.3561 × height^3) + (0.03308 × weight) + 0.1833$
+
+```{r}
+test_data <- regression_data
+
+test_data <- test_data %>% 
+  dplyr::select(KeyID, Weight, blood_volume, Smoking, Hb_g_l, Menstruation, Age, Group, Ferritin, BMI, DaysSinceLastDonation, DonationFreq2Years, DonationFreq2Years2, MenarcheAge, years_since_menarche, MenstruationLast6Months, CycleRegularity, DaysBetweenCycles, BleedingDays, HormonalContraception_Use, hc_OC, hc_implant_injection, hc_transdermalpatch, hc_IUD, hc_vaginal_ring, hc_other, hc_years_OC, hc_years_implant_injection, hc_years_IUD, hc_years_vaginal_ring, hc_years_transdermal, hc_years_other, hc_age_quit, hysterectomy, oophorectomy, nb_pregnancy, Age_5, Weight_10, log_ferritin, log_DaysSinceLastDonation, iron_deficiency, pbac, HMB, pbac_50, current_hc, current_cycleregularity, anemia, hc_type, current_smoking, age_group, pbac_log_1) %>%
+  mutate(Age_5 = scale(Age_5, scale = FALSE)[,1],
+         Weight_10 = scale(Weight_10, scale = FALSE)[,1],
+         pbac_50 = scale(pbac_50, scale = FALSE)[,1],
+         pbac_log_1 = scale(pbac_log_1, scale = FALSE)[,1],
+         years_since_menarche = scale(years_since_menarche, scale = FALSE)[,1],  
+         DonationFreq2Years = scale(DonationFreq2Years, scale = FALSE)[,1],
+         log_DaysSinceLastDonation = scale(log_DaysSinceLastDonation, scale = FALSE)[,1],
+         DaysBetweenCycles = scale(DaysBetweenCycles, scale = FALSE)[,1],  
+         BleedingDays = scale(BleedingDays, scale = FALSE)[,1],          
+         nb_pregnancy = scale(nb_pregnancy, scale = FALSE)[,1],
+         blood_volume = scale(blood_volume, scale = FALSE)[,1],
+         BMI = scale(BMI, scale = FALSE)[,1])
+
+```
+
+Save table
+
+```{r}
+#write.table(test_data, file = paste0("~/folder_name/test_data",".txt"))
+```
+
+
+## Population description
+
+### Table 1 
+
+Stratification based on menopausal status. Normally distributed variable are summarized as mean (SD), non-normally distributed variable are summarized as median (25th, 75th percentile).
+ 
+```{r}
+myVars <- c(
+  "Age" ,
+  "Ferritin (ug/l)",
+  "Hb (g/l)",
+  "Blood volume (l)",
+  "Smoker",
+  "Currently menstruating",
+  "Heavy menstrual bleeding",
+  "Donation frequency during past two years",
+  "Number of days since last blood donation",
+  "PBAC score",
+  "Current use of hormonal contraception",
+  "Type of hormonal contraception",
+  "Number of pregnancies")
+
+non_normal_vars <- c("Ferritin (ug/l)", "Number of pregnancies", "Number of days since last blood donation")
+
+table1data <- regression_data  %>%
+  rename(
+  "Age" = Age,
+  "Ferritin (ug/l)" = Ferritin,
+  "Hb (g/l)" = Hb_g_l,
+  "Blood volume (l)" = blood_volume,
+  "BMI" = BMI,
+  "Weight (kg)" = Weight,
+  "Smoker" = current_smoking,
+  "Currently menstruating" = Menstruation,
+  "Heavy menstrual bleeding" = HMB,
+  "Donation frequency during past two years" = DonationFreq2Years,
+  "Number of days since last blood donation" = DaysSinceLastDonation,
+  "Current use of hormonal contraception" = current_hc,
+  "Type of hormonal contraception" = hc_type,
+  "Number of pregnancies" = nb_pregnancy, 
+  "PBAC score" = pbac
+  )
+
+summary_table <- CreateTableOne(data = 
+                                  table1data,
+                                vars=myVars, 
+                                strata = c("Group")) 
+  
+tab3Mat <- print(summary_table, 
+                 nonnormal = non_normal_vars,
+                 vars=myVars, 
+                 quote = FALSE, 
+                 noSpaces = TRUE, 
+                 printToggle = FALSE)
+
+
+ colnames(tab3Mat) <- gsub("\\:",": ",colnames(tab3Mat))
+ tab3Mat %>% 
+   kable() 
+
+
+
+```
+
+# S3 (appendix) 
+
+
+```{r}
+# ferritin and HMB
+HMB_ferritin <- ggplot(regression_data, aes(x = HMB, y = Ferritin, color = Group)) +
+  scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  geom_hline(yintercept = 15,
+             color = "dark red",
+             size = .2,
+             linetype = 2) +
+  geom_boxplot(outlier.alpha = 0,
+               alpha = 0,
+               size = 1,
+               width = 0.5) +
+  geom_jitter(alpha = 0.3,
+              shape = 1,
+              size = 2,
+              position = position_jitterdodge(jitter.height = 0,
+                                              jitter.width = 0.5 )) +
+  scale_color_manual(values=c("#89ABE3FF", "#EA738DFF"),
+                    limits = c( "Postmenopausal",  "Premenopausal"),
+                    name = "Group", 
+                    labels = c("Postmenopausal", "Premenopausal")) +
+  labs(y= "Ferritin (ug/l)") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        text = element_text(size = 20))
+
+
+
+# Hb and PBAC intensity
+HMB_hb <- ggplot(regression_data, aes(x = HMB, y = Hb_g_l, color = Group)) +
+  scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  geom_hline(yintercept = 120,
+             color = "dark red",
+             size = .2,
+             linetype = 2) +
+  geom_boxplot(outlier.alpha = 0,
+               alpha = 0,
+               size = 1,
+               width = 0.5) +
+  geom_jitter(alpha = 0.3,
+              shape = 1,
+              size = 2,
+              position = position_jitterdodge(jitter.height = 0,
+                                              jitter.width = 0.5 )) +
+  scale_color_manual(values=c("#89ABE3FF", "#EA738DFF"),
+                    limits = c( "Postmenopausal",  "Premenopausal"),
+                    name = "Group", 
+                    labels = c("Postmenopausal", "Premenopausal")) +
+  labs(y= "Haemoblobin (g/L)", x = "Heavy menstrual bleeding") +
+  theme(text = element_text(size = 20))
+
+
+```
+
+
+```{r}
+# S3
+S3 <- plot_grid(HMB_ferritin, HMB_hb, 
+          labels = c("A", "B"),
+          ncol = 1, nrow = 2)
+S3
+```
+
+
+# Figure 1
+
+```{r}
+regression_data <- regression_data %>%
+  mutate(hc = case_when(
+    hc_type == "No" ~ "None", 
+    hc_type == "OC" ~ "Oral", 
+    hc_type == "IUD" ~ "IUD", 
+    hc_type == "Other type" ~ "Other"
+    ))
+```
+
+
+```{r}
+# ferritin
+fig1_ferritin <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=pbac, y=Ferritin)) +
+  #scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  #scale_x_continuous(trans='log10') + # log-transforms the x-axis
+  geom_point(aes(color = hc), size=3, alpha = 0.7) + 
+  geom_smooth(method=lm, color = "dark blue") +
+  geom_vline(xintercept = c(150),
+           color = "dark blue",
+           size = 1,
+           linetype = 2) +
+  geom_hline(yintercept = 15,
+             color = "dark red",
+             size = 1,
+             linetype = 2) +
+#  ggtitle("Correlation of ferritin and PBAC score in premenopausal women") +
+  labs(y= "Ferritin (ug/L)", x = "PBAC score", color = "Hormonal contraception") +
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+) + 
+  theme(text = element_text(size = 20))
+fig1_ferritin
+
+fig1_hb <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=pbac, y=Hb_g_l)) +
+  #scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  #scale_x_continuous(trans='log10') + # log-transforms the x-axis
+  geom_point(aes(color = hc), size=3, alpha = 0.7) + 
+  geom_smooth(method=lm, color = "dark blue") +
+  geom_vline(xintercept = c(150),
+           color = "dark blue",
+           size = 1,
+           linetype = 2) +
+  geom_hline(yintercept = 120,
+             color = "dark red",
+             size = 1,
+             linetype = 2) +
+  labs(y= "Haemoglobin (g/L)", x = "PBAC score", color = "Contraception") +
+  theme(legend.position = "bottom",
+        legend.title = element_text(size=15),
+        legend.text = element_text(size=15)) +
+  guides(color=guide_legend(nrow=2,byrow=TRUE)) +
+  theme(text = element_text(size = 20))
+fig1_hb
+```
+```{r , fig1, fig.height = 10, fig.width = 15 ,warning=FALSE}
+# combine
+fig1 <- plot_grid(fig1_ferritin, fig1_hb, 
+          ncol = 1, nrow = 2)
+fig1
+```
+
+## Figure 1 with marginal histograms
+
+### Ferritin plot
+
+```{r}
+# PBAC score histogram
+hist_top <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=pbac, color = hc)) +
+  #scale_x_continuous(trans='log10') +
+  geom_vline(xintercept = c(150),
+           color = "dark blue",
+           size = 1,
+           linetype = 2) +
+  theme(legend.position = "none") +
+  geom_freqpoly(binwidth=10) +
+  theme(legend.position = "none",
+       axis.title.x = element_blank(),
+       #axis.title.y = element_blank(),
+       #axis.text.x = element_blank(),
+       #axis.text.y = element_blank(), 
+       plot.margin = unit(c(3,-5.5,4,3), "mm")) +
+  scale_x_continuous(#breaks = 0:6,
+                    limits = c(0,400),
+                    expand = c(.05,.05)) +
+  scale_y_continuous(#breaks = 0:6,
+                    limits = c(0,100),  # do not change this, needed for axis symmetry
+                    expand = c(.05,.05)) +
+  theme(text = element_text(size = 20)) +
+  labs(y="Count")
+
+# Scatter plot for ferritin
+fig1_fer <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=pbac, y=Ferritin)) +
+  #scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  #scale_x_continuous(trans='log10') + # log-transforms the x-axis
+  geom_point(aes(color = hc), size=3, alpha = 0.7) + 
+  geom_smooth(method=lm, color = "dark blue") +
+  geom_vline(xintercept = c(150),
+           color = "dark blue",
+           size = 1,
+           linetype = 2) +
+  geom_hline(yintercept = 15,
+             color = "dark red",
+             size = 1,
+             linetype = 2) +
+#  ggtitle("Correlation of ferritin and PBAC score in premenopausal women") +
+  labs(y= "Ferritin (ug/L)", x = "PBAC score", color = "Hormonal contraception") +
+  theme(legend.position = "bottom",
+        text = element_text(size = 20)) +
+  scale_x_continuous(#breaks = 0:6,
+                    limits = c(0,400),
+                    expand = c(.05,.05)) +
+  scale_y_continuous(#breaks = 0:6,
+                    limits = c(0,175),
+                    expand = c(.05,.05)) +
+  theme(#axis.title.x = element_blank(),
+       #axis.title.y = element_blank(),
+       #axis.text.x = element_blank(),
+       #axis.text.y = element_blank(), 
+       plot.margin = unit(c(3,-5.5,4,3), "mm"))
+
+
+# Empty object needed for grid.arrange (top right picture)
+empty <- ggplot()+geom_point(aes(1,1), colour="white")+
+         theme(axis.ticks=element_blank(), 
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(), axis.text.y=element_blank(),           
+               axis.title.x=element_blank(), axis.title.y=element_blank())
+
+# blank object for y axis titles for fig1_fer and hist_top (adding the titles into the actual pictures will move figures in relation to each other the axis' no longer align)
+
+blank_scatter <- ggplot()+geom_point(aes(1,1), colour="white") +
+         labs(y= "Ferritin (ug/L)") +
+         theme(axis.ticks=element_blank(), 
+               text = element_text(size = 20),
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(),
+               axis.text.y=element_blank(),           
+               axis.title.x=element_blank(), 
+               #axis.title.y=element_blank()
+               )
+
+blank_top_histo <- ggplot()+geom_point(aes(1,1), colour="white") +
+         labs(y= "Count") +
+         theme(axis.ticks=element_blank(), 
+               text = element_text(size = 20),
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(),
+               axis.text.y=element_blank(),           
+               axis.title.x=element_blank(), 
+               #axis.title.y=element_blank()
+               )
+
+
+# Ferritin histogram 
+hist_right <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=Ferritin, color = hc)) +
+  scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  geom_vline(xintercept = c(15),
+           color = "dark red",
+           size = 1,
+           linetype = 2) +
+  theme(legend.position = "none") +
+  geom_freqpoly(binwidth=10) +
+  theme(#legend.position = "none",          
+       #axis.title.x = element_blank(),
+       axis.title.y = element_blank(),
+       #axis.text.x = element_blank(),
+       #axis.text.y = element_blank(), 
+       plot.margin = unit(c(3,-5.5,4,3), "mm")) +
+  theme(text = element_text(size = 20)) +
+  scale_y_continuous(#breaks = 0:6,
+                    limits = c(0,80),
+                    expand = c(.05,.05)) +
+  labs(y= "Count") +
+  coord_flip() 
+
+
+
+
+hist_top
+fig1_fer
+hist_right
+blank_scatter
+blank_top_histo
+```
+
+
+```{r}
+fig1_histo_ferritin <- grid.arrange(hist_top, empty, fig1_fer, hist_right, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
+
+fig1_histo_y_titles <- grid.arrange(blank_top_histo, empty, blank_scatter, empty, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
+
+```
+
+### Hemoglobin plot
+
+```{r}
+# PBAC score histogram
+hist_top_hb <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=pbac, color = hc)) +
+  #scale_x_continuous(trans='log10') +
+  geom_vline(xintercept = c(150),
+           color = "dark blue",
+           size = 1,
+           linetype = 2) +
+  theme(legend.position = "none") +
+  geom_freqpoly(binwidth=10) +
+  theme(legend.position = "none",
+       axis.title.x = element_blank(),
+       #axis.title.y = element_blank(),
+       #axis.text.x = element_blank(),
+       #axis.text.y = element_blank(), 
+       plot.margin = unit(c(3,-5.5,4,3), "mm")) +
+  scale_x_continuous(#breaks = 0:6,
+                    limits = c(0,400),
+                    expand = c(.05,.05)) +
+  scale_y_continuous(#breaks = 0:6,
+                    limits = c(0,100), # do not change this, needed for axis symmetry 
+                    expand = c(.05,.05)) +
+  theme(text = element_text(size = 20)) +
+  labs(y= "Count") 
+
+# Scatter plot for Hb
+fig1_hb <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=pbac, y=Hb_g_l)) +
+  #scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  #scale_x_continuous(trans='log10') + # log-transforms the x-axis
+  geom_point(aes(color = hc), size=3, alpha = 0.7) + 
+  geom_smooth(method=lm, color = "dark blue") +
+  geom_vline(xintercept = c(150),
+           color = "dark blue",
+           size = 1,
+           linetype = 2) +
+  geom_hline(yintercept = 120,
+             color = "dark red",
+             size = 1,
+             linetype = 2) +
+  labs(y= "Haemoglobin (g/L)", x = "PBAC score", color = "Hormonal contraception") +
+  theme(legend.position = "none",
+        text = element_text(size = 20)) +
+  scale_x_continuous(#breaks = 0:6,
+                    limits = c(0,400),
+                    expand = c(.05,.05)) +
+  scale_y_continuous(#breaks = 0:6,
+                    limits = c(100,175),
+                    expand = c(.05,.05)) +
+  theme(axis.title.x = element_blank(),
+       #axis.title.y = element_blank(),
+       #axis.text.x = element_blank(),
+       #axis.text.y = element_blank(), 
+       plot.margin = unit(c(3,-5.5,4,3), "mm"))
+
+
+# Empty object needed for grid.arrange (top right picture)
+empty <- ggplot()+geom_point(aes(1,1), colour="white")+
+         theme(axis.ticks=element_blank(), 
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(), axis.text.y=element_blank(),           
+               axis.title.x=element_blank(), axis.title.y=element_blank())
+
+# blank object for x and y axis titles for fig1_hb and hist_top_hb (adding the titles into the actual pictures will move figures in relation to each other the axis' no longer align)
+
+blank_scatter_hb <- ggplot()+geom_point(aes(1,1), colour="white") +
+         labs(y= "Haemoglobin (g/L)") +
+         theme(axis.ticks=element_blank(), 
+               text = element_text(size = 20),
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(),
+               axis.text.y=element_blank(),           
+               axis.title.x=element_blank(), 
+               #axis.title.y=element_blank()
+               )
+
+blank_top_histo <- ggplot()+geom_point(aes(1,1), colour="white") +
+         labs(y= "count") +
+         theme(axis.ticks=element_blank(), 
+               text = element_text(size = 20),
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(),
+               axis.text.y=element_blank(),           
+               axis.title.x=element_blank(), 
+               #axis.title.y=element_blank()
+               )
+
+blank_right_hb_histo <- ggplot()+geom_point(aes(1,1), colour="white") +
+         labs(x= "Count") +
+         theme(axis.ticks=element_blank(), 
+               text = element_text(size = 20),
+               panel.background=element_blank(), 
+               axis.text.x=element_blank(),
+               axis.text.y=element_blank(),           
+               #axis.title.x=element_blank(), 
+               axis.title.y=element_blank()
+               )
+
+
+
+# Hb histogram 
+hist_right_hb <- ggplot(regression_data %>% filter(Group == "Premenopausal"), aes(x=Hb_g_l, color = hc)) +
+  #scale_y_continuous(trans='log10') + # log-transforms the y-axis
+  geom_vline(xintercept = c(120),
+           color = "dark red",
+           size = 1,
+           linetype = 2) +
+  theme(legend.position = "none") +
+  geom_freqpoly(binwidth=10) +
+  theme(legend.position = "none",          
+       axis.title.x = element_blank(),
+       axis.title.y = element_blank(),
+       #axis.text.x = element_blank(),
+       #axis.text.y = element_blank(), 
+       plot.margin = unit(c(3,-5.5,4,3), "mm")) +
+  theme(text = element_text(size = 20)) +
+  scale_y_continuous(#breaks = 0:6,
+                    limits = c(0,100),
+                    expand = c(.05,.05)) +
+  scale_x_continuous(#breaks = 0:6,
+                    limits = c(100,175),
+                    expand = c(.05,.05)) +
+  coord_flip() 
+
+
+
+
+hist_top_hb
+fig1_hb
+hist_right_hb
+blank_scatter_hb
+blank_top_histo
+blank_right_hb_histo
+```
+
+
+```{r}
+fig1_histo_hb <- grid.arrange(hist_top_hb, empty, fig1_hb, hist_right_hb, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
+
+fig1_histo_x_titles <- grid.arrange(blank_top_histo, empty, blank_scatter, empty, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
+```
+
+```{r}
+# combine
+fig1_histo <- plot_grid(fig1_histo_hb, fig1_histo_ferritin, ncol = 1, nrow = 2)
+fig1_histo
+```
+
+
+## Multiple regression- ferritin as outcome
+
+### Correlograms
+
+```{r}
+ggpairs(test_data, 
+        ggplot2::aes(colour = Group, alpha = 0.5),
+        columns = c("log_ferritin", "iron_deficiency",  "Hb_g_l", "anemia"),
+         lower = list(continuous = wrap("points", alpha = 0.3,size=0.1),
+                      combo = wrap("facethist", binwidth = 0.5)),
+        progress = FALSE) + 
+  ggtitle("Correlogram, iron deficiency and anemia")
+```
+
+
+
+```{r}
+ggpairs(test_data, 
+        ggplot2::aes(colour = Group, alpha = 0.5),
+        columns = c("log_ferritin", "DaysSinceLastDonation",
+                    "log_DaysSinceLastDonation", "DonationFreq2Years", "DonationFreq2Years2"),
+         lower = list(continuous = wrap("points", alpha = 0.3,size=0.1),
+                      combo = wrap("facethist", binwidth = 0.5)),
+        progress = FALSE) + 
+  ggtitle("Correlogram, blood donation variables")
+```
+
+
+```{r}
+ggpairs(test_data, 
+        ggplot2::aes(colour = Group, alpha = 0.5),
+        columns = c("log_ferritin", "Age", "Weight", "BMI",
+                    "blood_volume"),
+         lower = list(continuous = wrap("points", alpha = 0.3,size=0.1),
+                      combo = wrap("facethist", binwidth = 0.5)),
+        progress = FALSE) + 
+  ggtitle("Correlogram, physiological characteristics")
+```
+
+
+
+```{r}
+ggpairs(test_data, 
+        ggplot2::aes(colour = Group, alpha = 0.5),
+        columns = c("log_ferritin", "current_smoking", "nb_pregnancy", "hc_type", "current_hc"),
+         lower = list(continuous = wrap("points", alpha = 0.3,size=0.1),
+                      combo = wrap("facethist", binwidth = 0.5)),
+        progress = FALSE) + 
+  ggtitle("Correlogram, lifestyle, pregnancy and use of hormonal contraception")
+```
+
+
+```{r}
+ggpairs(test_data, 
+        ggplot2::aes(colour = Group, alpha = 0.5),
+        columns = c("log_ferritin", "Menstruation", "current_cycleregularity", "pbac", "HMB", "BleedingDays", "DaysBetweenCycles", "years_since_menarche"),
+         lower = list(continuous = wrap("points", alpha = 0.3,size=0.1),
+                      combo = wrap("facethist", binwidth = 0.5)),
+        progress = FALSE) + 
+  ggtitle("Menstruation")
+```
+
+
+# Table 3 Percentage of ID and anemia by menopausal status 
+
+```{r}
+# make a new iron deficiency and anemia variables to make a pretty table
+regression_data <- regression_data %>% 
+    mutate(hb_cutoff = Hb_g_l < 125) %>% 
+  mutate(ID = case_when(
+    iron_deficiency == TRUE ~ "Yes",
+    iron_deficiency == FALSE ~ "No")) %>%
+  mutate(anemic = case_when(
+    anemia == TRUE ~ "Yes",
+    anemia == FALSE ~ "No")) %>%
+  mutate(Hb_below_donation_cutoff = case_when(
+    hb_cutoff == TRUE ~ "Yes",
+    hb_cutoff == FALSE ~ "No")) %>%
+  mutate(ID = ordered(ID, levels =  c("Yes", "No"))) %>% 
+  mutate(anemic = ordered(anemic, levels =  c("Yes", "No"))) %>% 
+  mutate(Hb_below_donation_cutoff = ordered(Hb_below_donation_cutoff, levels =  c("Yes", "No")))
+
+
+tab1 <- regression_data %>%
+  dplyr::select(Group, ID) %>% 
+  group_by(Group, ID) %>% 
+  count() %>% 
+  group_by(Group) %>% 
+  summarise(
+    Iron_deficient = ID,
+    n=n,
+    Percentage = round(n/sum(n)*100,2),
+    .groups='keep'
+  )
+
+tab2 <- regression_data %>%
+  dplyr::select(Group, anemic) %>% 
+  group_by(Group, anemic) %>% 
+  count() %>% 
+  group_by(Group) %>% 
+  summarise(
+    Anemic = anemic,
+    n=n,
+    Percentage = round(n/sum(n)*100,2),
+    .groups='keep'
+  )
+
+tab3 <- regression_data %>%
+  dplyr::select(Group, Hb_below_donation_cutoff) %>% 
+  group_by(Group, Hb_below_donation_cutoff) %>% 
+  count() %>% 
+  group_by(Group) %>% 
+  summarise(
+    Hb_below_donation_cutoff = Hb_below_donation_cutoff,
+    n=n,
+    Percentage = round(n/sum(n)*100,2),
+    .groups='keep'
+  )
+
+tab1
+tab2
+tab3
+```
+
+
+
