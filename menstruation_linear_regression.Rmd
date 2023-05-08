@@ -1,5 +1,5 @@
 ---
-title: "Influence of menstruation on Dutch female blood donors part 2"
+title: "Influence of menstruation on Dutch female blood donors part 2.1"
 author: "Sofie Ekroos"
 date: "5.5.2022"
 output:
@@ -9,7 +9,9 @@ output:
 
 # Summary
 
-This is the second part of a series of code for the project "Influence of menstruation on Dutch female blood donors". This part allows the user to run linear regression on ferritin and Hb. The code is based on the Bayesian ferritin model by Mikko Arvas (https://github.com/FRCBS/iron_measurement_comparisons/blob/master/src/ferritin_model_bayes.Rmd).
+This is the second part of a series of code for the project "Influence of menstruation on Dutch female blood donors". This part allows the user to run linear regression on ferritin. The code is based on the Bayesian ferritin model by Mikko Arvas (https://github.com/FRCBS/iron_measurement_comparisons/blob/master/src/ferritin_model_bayes.Rmd) 
+
+Version 1.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -19,6 +21,9 @@ library(brms)
 library(bayesplot)
 library(relaimpo) # relative importance analysis 
 library(broom) # needed for relative importance analysis 
+
+# echo "rmarkdown::render('menstruation_linear_regression.Rmd', clean=TRUE,output_format='pdf_document',output_file='G:/Donorstudies/Onderzoek/FORTE/A3 Collaboration Finland/A Collaboration documents/B4 Documents for R analysis/SPSS files/Menstruation Project/1. results/menstruation_linear_regression.Rmd')" | R --slave
+
 ```
 
 # Data loading and preparation
@@ -26,10 +31,12 @@ library(broom) # needed for relative importance analysis
 ## Data loading 
 
 ```{r}
-load("~/folder/data.rdata")
+load("~/menstruation_project/data/ID_data_regression.rdata")
 ```
 
 ### Remove ordering
+
+Remove ordering, it messes up the forest plot
 
 ```{r}
 regression_data <- regression_data %>% mutate_if(is.ordered, function(x){factor(x, ordered = FALSE)})
@@ -111,7 +118,7 @@ regression_data_post <- regression_data %>%
 ## Premenopausal women
 
 ```{r}
-file <- "~/folder/linear_pre"
+file <- "~/menstruation_project/results/bmodels/version1/linear_pre"
 
 linear_pre <- brm(log_ferritin ~
                         Age_5 +
@@ -134,7 +141,7 @@ summary(linear_pre)
 ## Postmenopausal women
 
 ```{r}
-file <- "~/folder/linear_post"
+file <- "~/menstruation_project/results/bmodels/version1/linear_post"
 
 linear_post <- brm(log_ferritin ~
                         Age_5 +
@@ -157,7 +164,7 @@ summary(linear_post)
 ## All women
 
 ```{r}
-file <- "~/folder/linear_all"
+file <- "~/menstruation_project/results/bmodels/version1/linear_all"
 
 linear_all <- brm(log_ferritin ~
                         Age_5 +
@@ -405,6 +412,25 @@ p1
 
 ```
 
+Save plot
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_ferritin_prepost.pdf",
+                plot = p1,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_ferritin_prepost.png",
+                plot = p1,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
 
 ```{r , fig2, fig.height = 5, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -422,6 +448,24 @@ p1_pub <- p1 + theme(axis.title = element_text(size = 14),
 
 p1_pub
 ```
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_ferritin_prepost.pdf",
+                plot = p1_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_ferritin_prepost.png",
+                plot = p1_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+
+```
+
 
 
 ```{r , fig3, fig.height = 10, fig.width = 15 ,warning=FALSE}
@@ -472,6 +516,24 @@ p2
 
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_ferritin_all.pdf",
+                plot = p2,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_ferritin_all.png",
+                plot = p2,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
+
 ```{r , fig4, fig.height = 5, fig.width = 10 ,warning=FALSE}
 # smaller picture for publication/presentation
 
@@ -489,13 +551,28 @@ p2_pub <- p2 + theme(axis.title = element_text(size = 14),
 p2_pub
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_ferritin_all.pdf",
+                plot = p2_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_ferritin_all.png",
+                plot = p2_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
 
 # Hemoglobin models 
 
 ## Premenopausal women
 
 ```{r}
-file <- "~/folder/linear_hb_pre"
+file <- "~/menstruation_project/results/bmodels/version1/linear_hb_pre"
 
 linear_hb_pre <- brm(Hb_g_l ~
                         Age_5 +
@@ -518,7 +595,7 @@ summary(linear_hb_pre)
 ## Postmenopausal women
 
 ```{r}
-file <- "~/folder/linear_hb_post"
+file <- "~/menstruation_project/results/bmodels/version1/linear_hb_post"
 
 linear_hb_post <- brm(Hb_g_l ~
                         Age_5 +
@@ -541,7 +618,7 @@ summary(linear_hb_post)
 ## All women
 
 ```{r}
-file <- "~/folder/linear_hb_all"
+file <- "~/menstruation_project/results/bmodels/version1/linear_hb_all"
 
 linear_hb_all <- brm(Hb_g_l ~
                         Age_5 +
@@ -789,6 +866,23 @@ p3
 
 ```
 
+Save plot
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_hb_prepost.pdf",
+                plot = p3,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_hb_prepost.png",
+                plot = p3,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
 
 
 ```{r , fig6, fig.height = 5, fig.width = 13 ,warning=FALSE}
@@ -806,6 +900,23 @@ p3_pub <- p3 + theme(axis.title = element_text(size = 14),
                                    hjust = 0.5))
 p3_pub
 ```
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_hb_prepost.pdf",
+                plot = p3_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_hb_prepost.png",
+                plot = p3_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 
 
@@ -857,6 +968,22 @@ p4
 
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_hb_all.pdf",
+                plot = p4,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/version1_forest_linear_mens_hb_all.png",
+                plot = p4,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+
+```
 
 
 ```{r , fig8, fig.height = 5, fig.width = 10 ,warning=FALSE}
@@ -876,6 +1003,21 @@ p4_pub <- p4 + theme(axis.title = element_text(size = 14),
 p4_pub
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_hb_all.pdf",
+                plot = p4_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/pub_version1_forest_linear_mens_hb_all.png",
+                plot = p4_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
 
 
 # Relative importance analysis 
@@ -958,6 +1100,23 @@ plt1 <- ggplot(aes(x=regressor, y = lmg),data = plotdata) +
 plt1
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/RIA_ferritin.pdf",
+                plot = plt1,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/RIA_ferritin.png",
+                plot = plt1,
+                width = 25,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+```
+
+
 
 ## Hb model
 
@@ -1035,5 +1194,376 @@ plt2 <- ggplot(aes(x=regressor, y = lmg),data = plotdata) +
   theme(axis.title.y = element_blank()) + 
   coord_flip() 
 plt2
+```
+
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/RIA_hb.pdf",
+                plot = plt2,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/lin_reg/RIA_hb.png",
+                plot = plt2,
+                width = 25,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+```
+
+
+# Compare models 
+
+## Forrest plots 
+
+
+```{r , fig11, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+# Make a new forest plot for Hb model to remove text on y-axis
+
+orlower <- -10
+orupper <- 10
+# Truncate ORs for plotting
+plotdata_hb_all <- intervals_hb_all %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 0 & hh < 0 | ll > 0 & hh > 0)
+
+#theme_set(bayesplot::theme_default())
+p5 <- ggplot(plotdata_hb_all, aes(x = m, y = regressor)) + 
+  geom_point(aes(shape = is.sig),
+             size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  xlim(orlower,orupper)  +   
+  geom_vline(xintercept = 0 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") +
+  theme(text = element_text(size = 20)) +
+  theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank())
+p5
+
+
+```
+
+
+```{r , fig12, fig.height = 5, fig.width = 5 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p5_pub <- p5 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5)) +
+      theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank())
+
+p5_pub
+```
+
+
+
+
+```{r , fig13, fig.height = 10, fig.width = 15 ,warning=FALSE}
+
+# Ferritin forest plot without axis text
+
+orlower <- -1
+orupper <- 1
+# Truncate ORs for plotting
+plotdata <- intervals_all %>% 
+  mutate(
+    ll = case_when(
+      ll < orlower ~ orlower,
+      TRUE ~ ll
+    ),
+    hh = case_when(
+      hh > orupper ~ orupper,
+      TRUE ~ hh
+    )
+  ) %>% mutate(is.sig = ll < 0 & hh < 0 | ll > 0 & hh > 0)
+
+#theme_set(bayesplot::theme_default())
+p6 <- ggplot(plotdata, aes(x = m, y = regressor)) + 
+  geom_point(aes(shape = is.sig), 
+             size=4) +
+  geom_linerange(aes(xmin = ll, xmax = hh), 
+                 size = 1, 
+                 linetype = 1
+                 ) +
+  scale_shape_manual(values = c(1,16)) +
+  xlim(orlower,orupper)  +   
+  geom_vline(xintercept = 0 , color = "grey", linetype = "dotted",
+             size = 1) +
+  theme(axis.title = element_text(size = 14),
+        strip.text =  element_text(size = 14),
+        legend.text = element_text(size = 12),
+        strip.background = element_rect(fill = "white"),
+        strip.background.x = element_blank(),
+        axis.text.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14)
+  ) +
+  guides(shape = "none") +
+  theme_classic() +
+  xlab("Coefficient") +
+  theme(text = element_text(size = 20)) +
+  theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank())
+p6
+
+```
+
+
+```{r , fig14, fig.height = 5, fig.width = 5 ,warning=FALSE}
+# smaller picture for publication/presentation
+
+p6_pub <- p6 + theme(axis.title = element_text(size = 14),
+      strip.text =  element_text(size = 14),
+      legend.text = element_text(size = 12),
+      strip.background = element_rect(fill = "white"),
+      strip.background.x = element_blank(),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14, angle = 30,hjust = 0.8),
+      plot.title =  element_text(size = 16),
+      plot.subtitle = element_text(size = 16,
+                                   hjust = 0.5)) +
+      theme(axis.title.y = element_blank(),
+        axis.text.y = element_blank())
+
+p6_pub
+```
+
+
+```{r}
+# Ferritin 
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_ferritin.pdf",
+                plot = p2_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_ferritin.png",
+                plot = p2_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_ferritin_no_text.pdf",
+                plot = p6_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_ferritin_no_text.png",
+                plot = p6_pub,
+                width = 25,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+
+
+# Hb
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_hb_no_text.pdf",
+                plot = p5_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_hb_no_text.png",
+                plot = p5_pub,
+                width = 25,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+
+```
+
+
+```{r , fig15, fig.height = 5, fig.width = 10 ,warning=FALSE}
+comp_forrest <- plot_grid(p6_pub, p5_pub, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+comp_forrest
+
+```
+
+```{r, fig16, fig.height = 5, fig.width = 5,warning=FALSE}
+# only labels 
+
+comp_forrest_lab <- plot_grid(p2_pub, p4_pub, 
+          #labels = c("A", "B"),
+          ncol = 1, nrow = 1)
+comp_forrest_lab
+
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/lab.png",
+                plot = comp_forrest_lab,
+                width = 11,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+```
+
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2.pdf",
+                plot = comp_forrest,
+                width = 50,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2.png",
+                plot = comp_forrest,
+                width = 20,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+```
+
+
+```{r , fig17, fig.height = 5, fig.width = 20,warning=FALSE}
+# fig2 with labels
+comp_forrest_2 <- plot_grid(p2_pub, p4_pub, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+comp_forrest_2
+
+```
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_lab.pdf",
+                plot = comp_forrest_2,
+                width = 60,
+                height = 20,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig2/fig2_lab.png",
+                plot = comp_forrest_2,
+                width = 30,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+```
+
+
+## RIA 
+
+```{r, fig18, fig.height = 5, fig.width = 5,warning=FALSE}
+# ferritin
+plt3 <- plt1 + theme(axis.text.y = element_blank()) 
+plt3
+
+# hb 
+plt4 <- plt2 + theme(axis.text.y = element_blank()) 
+plt4
+```
+
+
+
+```{r , fig19, fig.height = 5, fig.width = 12 ,warning=FALSE}
+comp_RIA <- plot_grid(plt3, plt4, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1) 
+comp_RIA
+
+RIA_lab <-plot_grid(plt1, plt2, 
+          #labels = c("A", "B"),
+          ncol = 1, nrow = 1)
+RIA_lab
+```
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig3/fig3.pdf",
+                plot = comp_RIA,
+                width = 40,
+                height = 10,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig3/fig3.png",
+                plot = comp_RIA,
+                width = 26,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig3/fig3_lab.pdf",
+                plot = RIA_lab,
+                width = 40,
+                height = 10,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig3/fig3_lab.png",
+                plot = RIA_lab,
+                width = 26,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+
+
+```
+
+## S2 (appendix)
+
+```{r, fig20, fig.height = 5, fig.width = 25 ,warning=FALSE}
+S2 <- plot_grid(p1, p3, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1) 
+S2
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/appendix/S2.pdf",
+                plot = S2,
+                width = 75,
+                height = 20,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/appendix/S2.png",
+                plot = S2,
+                width = 75,
+                height = 20,
+                dpi = 300,
+                units = "cm")
 ```
 

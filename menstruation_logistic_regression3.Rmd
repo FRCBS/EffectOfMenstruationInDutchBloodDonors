@@ -1,5 +1,5 @@
 ---
-title: "Influence of menstruation on Dutch female blood donors part 3"
+title: "Influence of menstruation on Dutch female blood donors part 3.3"
 author: "Sofie Ekroos"
 date: "5.5.2022"
 output:
@@ -7,17 +7,22 @@ output:
     df_print: paged
 ---
 
+
 # Summary
 
-This is the third part of a series of code for the project "Influence of menstruation on Dutch female blood donors". This part allows the user to run Bayesian logistic regression on iron deficiency and anemia in the subgroup of menstruating females, in order to see how variables related to menstruation effect Dutch female blood donors. The code is based on Mikko Arvas's model "Low ferritin model" that can be found in the FRCBS github repo "iron_measurement_comparison" (https://github.com/FRCBS/iron_measurement_comparisons/blob/master/src/low_ferritin_model_bayes.Rmd). 
+This is the third part of a series of code for the project "Influence of menstruation on Dutch female blood donors". This part allows the user to run Bayesian logistic regression on iron deficiency and anemia in order to see how variables related to menstruation effect Dutch female blood donors. The code is based on Mikko Arvas's model "Low ferritin model" that can be found in the FRCBS github repo "iron_measurement_comparison" (https://github.com/FRCBS/iron_measurement_comparisons/blob/master/src/low_ferritin_model_bayes.Rmd). 
+
+Version 3: subgroup analysis of other menstrual variables than PBAC scores on menstruating women.
 
 ```{r}
 knitr::opts_chunk$set(echo = TRUE)
+# echo "rmarkdown::render('menstruation_logistic_regression.Rmd', clean=TRUE,output_format='pdf_document',output_file='G:/Donorstudies/Onderzoek/FORTE/A3 Collaboration Finland/A Collaboration documents/B4 Documents for R analysis/SPSS files/Menstruation Project/1. results/menstruation_logistic_regression.Rmd')" | R --slave
 
 library(tidyverse)
 library(brms)
 library(bayesplot)
 library(cowplot)
+
 ```
 
 # Data loading and preparation
@@ -25,7 +30,7 @@ library(cowplot)
 ## Load data
 
 ```{r}
-load("~/folder/data.rdata")
+load("~/menstruation_project/data/ID_data_regression.rdata")
 
 regression_data <- regression_data %>% 
      mutate(pbac_50 = pbac / 50) %>% 
@@ -120,7 +125,7 @@ First we run a model that is identical to version 1, in order to see the effect 
 
 
 ```{r}
-file <- "~/folder/logistic_mens_pbac"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_mens_pbac"
 
 logistic_mens_pbac <- brm(iron_deficiency ~
                         Age_5 +
@@ -196,7 +201,7 @@ regressor_values <- c(
     "log_DaysSinceLastDonation" = "Days since last donation (log, /log(2))",
     "DonationFreq2Years" = "Donations in the last 2 years",
     "DonationFreq2Years2" = "Donations in the last 2 years (quadratic)",
-    "years_since_menarche" = "Years since menarche",
+    "years_since_menarche" = "Number of years since menarche",
     "nb_pregnancy" = "Number of pregnancies",
     "current_hcNo" = "Does not use hormonal contraception",
     "current_hcYes" = "Uses hormonal contraception",
@@ -207,8 +212,8 @@ regressor_values <- c(
     "hc_typeOC" = "Hormonal contraception: oral contraceptives",
     "hc_typeOthertype" = "Hormonal contraception: other",
     "hc_typeno" = "No hormonal contraception",
-    "DaysBetweenCycles" = "Days between two cycles",
-    "BleedingDays" = "Number of days bleeding"
+    "DaysBetweenCycles" = "Frequency of menses (days)",
+    "BleedingDays" = "Duration of flow (days)"
 )
 ```
 
@@ -276,6 +281,22 @@ p1 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p1
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_pbac.pdf",
+                plot = p1,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_pbac.png",
+                plot = p1,
+                width = 35,
+                height = 25,
+                dpi = 100,
+                units = "cm")
+```
+
 
 ```{r , fig2, fig.height = 5, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -295,12 +316,31 @@ p1_pub
 ```
 
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_pbac.pdf",
+                plot = p1_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_pbac.png",
+                plot = p1_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
+
+
 ## Heavy menstrual bleeding model
 
 This model is identical to the PBAC model, except for PBAC score which has been replaced by HMB.
 
 ```{r}
-file <- "~/folder/logistic_mens_pbac_int"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_mens_pbac_int"
 
 logistic_mens_pbac_int <- brm(iron_deficiency ~
                         Age_5 +
@@ -428,6 +468,22 @@ p2 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p2
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_pbac_int.pdf",
+                plot = p2,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_pbac_int.png",
+                plot = p2,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 ```{r , fig4, fig.height = 5, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -447,12 +503,29 @@ p2_pub
 ```
 
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_pbac_int.pdf",
+                plot = p2_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_pbac_int.png",
+                plot = p2_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
 ## Other variable model 
 
 The following models includes variables related to menstruation, without the PBAC score variable. 
 
 ```{r}
-file <- "~/folder/logistic_mens"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_mens"
 
 logistic_mens <- brm(iron_deficiency ~
                         Age_5 +
@@ -584,6 +657,22 @@ p3 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p3
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_mens.pdf",
+                plot = p3,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_mens.png",
+                plot = p3,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 ```{r , fig6, fig.height = 6, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -602,13 +691,34 @@ p3_pub <- p3 + theme(axis.title = element_text(size = 14),
 p3_pub
 ```
 
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_mens.pdf",
+                plot = p3_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_mens.png",
+                plot = p3_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
+
+
+
 ## Other variable model with PBAC as control variable
 
 It seems like the effect of PBAC score is lost with IUD:s are taken into account in the other variables model. In order to check that the effect of PBAC score is not lost due to its information being lost in binning, we will run the model again and include PBAC score as a control (HMB has to be removed, as it is a transformation of the PBAC score).
 
 
 ```{r}
-file <- "~/folder/logistic_mens_control"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_mens_control"
 
 logistic_mens_control <- brm(iron_deficiency ~
                         Age_5 +
@@ -742,6 +852,22 @@ p4 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p4
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_mens_control.pdf",
+                plot = p4,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_forest_ID_mens_control.png",
+                plot = p4,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 ```{r , fig8, fig.height = 8, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -761,6 +887,24 @@ p4_pub
 ```
 
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_mens_control.pdf",
+                plot = p4_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_forest_ID_mens_control.png",
+                plot = p4_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
+
 # Anemia models
 
 ## PBAC model
@@ -769,7 +913,7 @@ First we run a model that is identical to version 1, in order to see the effect 
 
 
 ```{r}
-file <- "~/folder/logistic_anemia_mens_pbac"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_anemia_mens_pbac"
 
 logistic_anemia_mens_pbac <- brm(anemia ~
                         Age_5 +
@@ -845,7 +989,7 @@ regressor_values <- c(
     "log_DaysSinceLastDonation" = "Days since last donation (log, /log(2))",
     "DonationFreq2Years" = "Donations in the last 2 years",
     "DonationFreq2Years2" = "Donations in the last 2 years (quadratic)",
-    "years_since_menarche" = "Years since menarche",
+    "years_since_menarche" = "Number of years since menarche",
     "nb_pregnancy" = "Number of pregnancies",
     "current_hcNo" = "Does not use hormonal contraception",
     "current_hcYes" = "Uses hormonal contraception",
@@ -856,8 +1000,8 @@ regressor_values <- c(
     "hc_typeOC" = "Hormonal contraception: oral contraceptives",
     "hc_typeOthertype" = "Hormonal contraception: other",
     "hc_typeno" = "No hormonal contraception",
-    "DaysBetweenCycles" = "Days between two cycles",
-    "BleedingDays" = "Number of days bleeding"
+    "DaysBetweenCycles" = "Frequency of menses (days)",
+    "BleedingDays" = "Duration of flow (days)"
 )
 ```
 
@@ -927,6 +1071,22 @@ p5 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p5
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_pbac.pdf",
+                plot = p5,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_pbac.png",
+                plot = p5,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 ```{r , fig10, fig.height = 5, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -946,12 +1106,28 @@ p5_pub
 ```
 
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_anemia_version3_forest_ID_pbac.pdf",
+                plot = p5_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_anemia_version3_forest_ID_pbac.png",
+                plot = p5_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 ## Heavy menstrual bleeding model
 
 This model is identical to the PBAC model, except for PBAC score which has been replaced by HMB
 
 ```{r}
-file <- "~/folder/logistic_anemia_mens_pbac_int"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_anemia_mens_pbac_int"
 
 logistic_anemia_mens_pbac_int <- brm(anemia ~
                         Age_5 +
@@ -1079,6 +1255,22 @@ p6 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p6
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_pbac_int.pdf",
+                plot = p6,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_pbac_int.png",
+                plot = p6,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 ```{r , fig12, fig.height = 5, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -1098,12 +1290,29 @@ p6_pub
 ```
 
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_anemia_forest_ID_pbac_int.pdf",
+                plot = p6_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_version3_anemia_forest_ID_pbac_int.png",
+                plot = p6_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
 ## Other variable model 
 
 The following models includes variables related to menstruation, without the PBAC score variable. 
 
 ```{r}
-file <- "~/folder/logistic_anemia_mens"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_anemia_mens"
 
 logistic_anemia_mens <- brm(anemia ~
                         Age_5 +
@@ -1236,6 +1445,22 @@ p7 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p7
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_mens.pdf",
+                plot = p7,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_mens.png",
+                plot = p7,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 ```{r , fig14, fig.height = 6, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -1255,11 +1480,28 @@ p7_pub
 ```
 
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_anemia_version3_forest_ID_mens.pdf",
+                plot = p7_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_anemia_version3_forest_ID_mens.png",
+                plot = p7_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
 ## Other variable model with PBAC as control variable
 
 
 ```{r}
-file <- "~/folder/logistic_anemia_mens_control"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_anemia_mens_control"
 
 logistic_anemia_mens_control <- brm(anemia ~
                         Age_5 +
@@ -1393,6 +1635,22 @@ p8 <- ggplot(plotdata, aes(x = m, y = regressor)) +
 p8
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_mens_control.pdf",
+                plot = p8,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/version3_anemia_forest_ID_mens_control.png",
+                plot = p8,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
 
 ```{r , fig16, fig.height = 8, fig.width = 13 ,warning=FALSE}
 # smaller picture for publication/presentation
@@ -1412,6 +1670,24 @@ p8_pub
 ```
 
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_anemia_version3_forest_ID_mens_control.pdf",
+                plot = p8_pub,
+                width = 35,
+                height = 25,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/pub_anemia_version3_forest_ID_mens_control.png",
+                plot = p8_pub,
+                width = 35,
+                height = 25,
+                dpi = 300,
+                units = "cm")
+```
+
+
+
 # Blood donation cutoff
 
 ## PBAC model
@@ -1420,7 +1696,7 @@ First we run a model that is identical to version 1, in order to see the effect 
 
 
 ```{r}
-file <- "~/folder/logistic_125_mens_pbac"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_125_mens_pbac"
 
 logistic_125_mens_pbac <- brm(hb_cutoff ~
                         Age_5 +
@@ -1496,7 +1772,7 @@ regressor_values <- c(
     "log_DaysSinceLastDonation" = "Days since last donation (log, /log(2))",
     "DonationFreq2Years" = "Donations in the last 2 years",
     "DonationFreq2Years2" = "Donations in the last 2 years (quadratic)",
-    "years_since_menarche" = "Years since menarche",
+    "years_since_menarche" = "Number of years since menarche",
     "nb_pregnancy" = "Number of pregnancies",
     "current_hcNo" = "Does not use hormonal contraception",
     "current_hcYes" = "Uses hormonal contraception",
@@ -1507,8 +1783,8 @@ regressor_values <- c(
     "hc_typeOC" = "Hormonal contraception: oral contraceptives",
     "hc_typeOthertype" = "Hormonal contraception: other",
     "hc_typeno" = "No hormonal contraception",
-    "DaysBetweenCycles" = "Days between two cycles",
-    "BleedingDays" = "Number of days bleeding"
+    "DaysBetweenCycles" = "Frequency of menses (days)",
+    "BleedingDays" = "Duration of flow (days)"
 )
 ```
 
@@ -1599,7 +1875,7 @@ p9_pub
 This model is identical to the PBAC model, except for PBAC score which has been replaced by HMB
 
 ```{r}
-file <- "~/folder/logistic_125_mens_pbac_int"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_125_mens_pbac_int"
 
 logistic_125_mens_pbac_int <- brm(hb_cutoff ~
                         Age_5 +
@@ -1753,7 +2029,7 @@ p10_pub
 The following models includes variables related to menstruation, without the PBAC score variable. 
 
 ```{r}
-file <- "~/folder/logistic_125_mens"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_125_mens"
 
 logistic_125_mens <- brm(hb_cutoff ~
                         Age_5 +
@@ -1911,7 +2187,7 @@ Same model as above with PBAC score as a control (HMB has to be removed, as it i
 
 
 ```{r}
-file <- "~/folder/logistic_125_mens_control"
+file <- "~/menstruation_project/results/bmodels/version3/logistic_125_mens_control"
 
 logistic_125_mens_control <- brm(hb_cutoff ~
                         Age_5 +
@@ -2091,6 +2367,127 @@ model4 <- loo(logistic_mens_control)
 loo_compare(model1, model3)
 ```
 
+## Iron deficiency models 
+
+```{r , fig25, fig.height = 20, fig.width = 40 ,warning=FALSE}
+comp_ID <- plot_grid(p1_pub, p2_pub, p3_pub, p4_pub, 
+          labels = c("PBAC model (ID)", "HMB model (ID)", "Menstruation variable model (ID)", "Menstruation variable model with control (ID)"),
+          ncol = 2, nrow = 2)
+comp_ID
+```
+## Anemia models 
+
+```{r , fig26, fig.height = 20, fig.width = 40 ,warning=FALSE}
+comp_anemia <- plot_grid(p5_pub, p6_pub, p7_pub, p8_pub, 
+          labels = c("PBAC model (anemia)", "HMB model (anemia)", "Menstruation variable model (anemia)", "Menstruation variable model with control (anemia)"),
+          ncol = 2, nrow = 2)
+comp_anemia
+```
+
+## Donation cutoff models 
+
+```{r , fig27, fig.height = 20, fig.width = 40 ,warning=FALSE}
+comp_125 <- plot_grid(p9_pub, p10_pub, p11_pub, p12_pub, 
+          labels = c("PBAC model (donation cutoff)", "HMB model (donation cutoff)", "Menstruation variable model (donation cutoff)", "Menstruation variable model with control (donation cutoff)"),
+          ncol = 2, nrow = 2)
+comp_125
+```
+
+
+## PBAC models 
+
+```{r , fig28, fig.height = 20, fig.width = 20 ,warning=FALSE}
+comp_PBAC <- plot_grid(p1_pub, p5_pub, p9_pub, 
+          labels = c("PBAC model (ID)", "PBAC model (anemia)",  "PBAC model (donation_cutoff)"),
+          ncol = 1, nrow = 3)
+comp_PBAC
+```
+
+## Heavy menstrual bleeding models 
+
+```{r , fig29, fig.height = 20, fig.width = 20 ,warning=FALSE}
+comp_HMB <- plot_grid(p2_pub, p6_pub, p10_pub, 
+          labels = c("HMB model (ID)", "HMB model (anemia)", "HMB model (donation cutoff)"),
+          ncol = 1, nrow = 3)
+comp_HMB
+```
+
+## Menstruation variable models 
+
+```{r , fig30, fig.height = 20, fig.width = 20 ,warning=FALSE}
+comp_mens <- plot_grid(p3_pub, p7_pub, p11_pub, 
+          labels = c("Menstruation variable model (ID)", "Menstruation variable model (anemia)", "Menstruation variable model (donation cutoff)"),
+          ncol = 1, nrow = 3)
+comp_mens
+```
+
+
+## Menstruation variable models with PBAC control 
+
+```{r , fig31, fig.height = 20, fig.width = 20 ,warning=FALSE}
+comp_mens_pbac <- plot_grid(p4_pub, p8_pub, p12_pub,
+          labels = c("Menstruation variable model with PBAC control (ID)", "Menstruation variable model with PBAC control (anemia)", "Menstruation variable model with PBAC control (donation cutoff)"),
+          ncol = 1, nrow = 3)
+comp_mens_pbac
+```
+
+
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/comp/comp_ID.png",
+                plot = comp_ID,
+                width = 100,
+                height = 60,
+                dpi = 200,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/comp/comp_anemia.png",
+                plot = comp_anemia,
+                width = 100,
+                height = 60,
+                dpi = 200,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/comp/comp_125.png",
+                plot = comp_125,
+                width = 100,
+                height = 60,
+                dpi = 200,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/comp/comp_PBAC.png",
+                plot = comp_PBAC,
+                width = 60,
+                height = 60,
+                dpi = 200,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/comp/comp_HMB.png",
+                plot = comp_HMB,
+                width = 60,
+                height = 60,
+                dpi = 200,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/comp/comp_mens.png",
+                plot = comp_mens,
+                width = 60,
+                height = 60,
+                dpi = 200,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/log_reg_mens/comp/comp_mens_pbac.png",
+                plot = comp_mens_pbac,
+                width = 60,
+                height = 60,
+                dpi = 200,
+                units = "cm")
+```
+
+
+
+
+
 
 ## Figure 4 
 
@@ -2118,6 +2515,53 @@ fig4
 
 ```
 
+
+```{r, fig34, fig.height = 5, fig.width = 10,warning=FALSE}
+# only labels 
+
+p3_lab <- p3_pub + 
+  theme(axis.title.y = element_blank())
+p3_lab
+
+comp_forrest_lab <- plot_grid(p3_lab, p4_pub, 
+          #labels = c("A", "B"),
+          ncol = 1, nrow = 1)
+comp_forrest_lab
+```
+
+
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig4/fig4.pdf",
+                plot = fig4,
+                width = 60,
+                height = 20,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig4/fig4.png",
+                plot = fig4,
+                width = 20,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig4/fig4_lab.pdf",
+                plot = comp_forrest_lab,
+                width = 60,
+                height = 20,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/fig4/fig4_lab.png",
+                plot = comp_forrest_lab,
+                width = 20,
+                height = 10,
+                dpi = 300,
+                units = "cm")
+
+```
+
+
 # S5 (appendix)
 
 ```{r, fig35, fig.height = 5, fig.width = 20 ,warning=FALSE}
@@ -2127,8 +2571,38 @@ S5 <- plot_grid(p4_pub, p8_pub,
 S5
 ```
 
+```{r}
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/appendix/S5.pdf",
+                plot = S5,
+                width = 70,
+                height = 20,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/appendix/S5.png",
+                plot = S5,
+                width = 70,
+                height = 20,
+                dpi = 300,
+                units = "cm")
+```
+
 # S7 (appendix)
 
 ```{r}
-p11_pub
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/appendix/S7.pdf",
+                plot = p11_pub,
+                width = 30,
+                height = 20,
+                dpi = 600,
+                units = "cm")
+
+ggplot2::ggsave(filename = "~/menstruation_project/results/figures/final/appendix/S7.png",
+                plot = p11_pub,
+                width = 30,
+                height = 20,
+                dpi = 300,
+                units = "cm")
 ```
+
+
