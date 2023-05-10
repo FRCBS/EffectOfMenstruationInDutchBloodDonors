@@ -12,8 +12,7 @@ _menstruation_logistic_regression3.Rmd_, allows the user to run Bayesian logisti
 on iron deficiency and anaemia. 
 
 Information on packages needed to run the code is included in the .Rmd:s. The appropriate version of 
-the relaimpo package is available to download directly from the package's author's  
-[webpage](https://prof.bht-berlin.de/groemping/software/relaimpo/). Please note that the code requires 
+the relaimpo package is available to download directly from the package's author's [webpage](https://prof.bht-berlin.de/groemping/software/relaimpo/). Please note that the code requires 
 the non-US version of the package to run the pmvd analyses.
 
 For questions regarding the code or manuscript, please contact S Ekroos (sofie (dot) ekroos (at)
