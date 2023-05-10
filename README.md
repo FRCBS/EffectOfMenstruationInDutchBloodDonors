@@ -5,10 +5,9 @@ is an important determinant of Hb and ferritin levels in premenopausal blood don
 Karregat J., Toffol E., Castrén J., Arvas M. and van den Hurk K.
 
 The code is included in three separate .Rmd files. The first part, _menstruation_data.Rmd_, allows
-the user to describe the DIS III cohort, filter participants based on eligibility, preprocess data,  
-produce figures for the manuscript and build a summary table to be used in further regression analysis. 
-The second part, _menstruation_linear_regression.Rmd_, can be used to run Bayesian linear regression 
-analyses as well as relative importance analyses on ferritin and Hb. The third part, 
+the user to describe the DIS III cohort, filter participants based on eligibility, preprocess data, produce figures for the manuscript 
+and build a summary table to be used in further regression analysis. The second part, _menstruation_linear_regression.Rmd_, can be used to 
+run Bayesian linear regression analyses as well as relative importance analyses on ferritin and Hb. The third part, 
 _menstruation_logistic_regression3.Rmd_, allows the user to run Bayesian logistic regression analyses
 on iron deficiency and anaemia. 
 
