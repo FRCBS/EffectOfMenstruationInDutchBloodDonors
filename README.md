@@ -1,4 +1,4 @@
-# **Menstrual blood loss is an important determinant of Hb and ferritin levels in premenopausal blood donors**
+# Menstrual blood loss is an important determinant of Hb and ferritin levels in premenopausal blood donors
 #
 # This repository contains R code to reproduce the analyses for the manuscript _Menstrual blood loss 
 # is an important determinant of Hb and ferritin levels in premenopausal blood donors_ by Ekroos S., 
